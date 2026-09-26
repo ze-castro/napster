@@ -1,0 +1,19 @@
+services:
+  napster:
+    # Set NAPSTER_IMAGE in .env to pull a prebuilt image; otherwise `docker compose up -d --build` builds it here.
+    image: ${NAPSTER_IMAGE:-napster:local}
+    build: .
+    restart: unless-stopped
+    # Runs as root so it can hand new files to the owner picked in Settings.
+    ports:
+      - "${PORT:-3000}:${PORT:-3000}"
+    environment:
+      # Must be the exact URL you open napster at, or saving settings is blocked (CSRF check).
+      ORIGIN: ${ORIGIN:?Set ORIGIN in .env}
+      PORT: ${PORT:-3000}
+    volumes:
+      - ./data:/data # settings, history, cookies, backup list
+      - ${MUSIC_DIR:?Set MUSIC_DIR in .env}:/music # must be writable, no :ro
+      # Lets Settings list this machine's users for the file owner.
+      - /etc/passwd:/host/etc/passwd:ro
+      - /etc/group:/host/etc/group:ro
