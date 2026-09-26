@@ -36,6 +36,13 @@ bun install
 bun run dev
 ```
 
+The shadcn-svelte components are committed in `src/lib/components/ui/`. If that folder is missing (for example, in a copy made without it), add them first:
+
+```sh
+bunx shadcn-svelte@latest init   # accept the defaults: src/app.css and the $lib aliases
+bunx shadcn-svelte@latest add button input badge progress label select radio-group switch textarea checkbox sheet tabs collapsible
+```
+
 Open http://localhost:5173 and go to **Settings**:
 
 1. Set the **Music folder** (a full path; in dev it defaults to `~/Downloads`).
