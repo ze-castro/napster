@@ -16,9 +16,6 @@
 </script>
 
 <svelte:head>
-	<link rel="icon" type="image/png" sizes="32x32" href="/icon-32.png" />
-	<link rel="icon" type="image/png" sizes="512x512" href="/icon-512.png" />
-	<link rel="apple-touch-icon" href="/icon-180.png" />
 	<title>{live.reviews.length ? `(${live.reviews.length}) napster` : 'napster'}</title>
 </svelte:head>
 

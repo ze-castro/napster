@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="static/icon-512.png" width="112" height="112" alt="napster logo">
+  <img src="static/icon-180.png" width="112" height="112" alt="napster logo">
 </p>
 
 <h1 align="center">napster</h1>
