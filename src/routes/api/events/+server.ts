@@ -1,7 +1,7 @@
-import { listJobs, ready, subscribe } from '$lib/server/jobs';
+import { ready, snapshot, subscribe } from '$lib/server/jobs';
 import type { RequestHandler } from './$types';
 
-/** Server-sent events: pushes the full job list on every change (it's small). */
+/** Server-sent events: pushes all jobs and open reviews on every change (both are small). */
 export const GET: RequestHandler = async ({ request }) => {
 	await ready;
 	const encoder = new TextEncoder();
@@ -16,7 +16,7 @@ export const GET: RequestHandler = async ({ request }) => {
 					cleanup();
 				}
 			};
-			const push = () => send(`data: ${JSON.stringify(listJobs())}\n\n`);
+			const push = () => send(`data: ${JSON.stringify(snapshot())}\n\n`);
 
 			push();
 			const unsubscribe = subscribe(push);

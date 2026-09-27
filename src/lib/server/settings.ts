@@ -21,7 +21,6 @@ export function defaultSettings(): Settings {
 	return {
 		libraryDir: dev ? join(homedir(), 'Downloads') : '/music',
 		concurrency: 3,
-		mbContact: '',
 		owner: null,
 		existingFiles: 'skip',
 		artSize: 1000,
@@ -42,7 +41,6 @@ export async function readSettings(): Promise<Settings> {
 			Number.isInteger(raw.concurrency) && raw.concurrency! >= 1 && raw.concurrency! <= MAX_CONCURRENCY
 				? raw.concurrency!
 				: d.concurrency,
-		mbContact: typeof raw.mbContact === 'string' ? raw.mbContact : d.mbContact,
 		owner:
 			owner && Number.isInteger(owner.uid) && Number.isInteger(owner.gid)
 				? { uid: owner.uid, gid: owner.gid }

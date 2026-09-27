@@ -34,10 +34,6 @@ export const actions: Actions = {
 			errors.concurrency = `Enter a whole number from 1 to ${MAX_CONCURRENCY}.`;
 		}
 
-		const mbContact = str('mbContact');
-		if (mbContact && !/^\S+@\S+\.\S+$/.test(mbContact) && !/^https?:\/\/\S+$/.test(mbContact)) {
-			errors.mbContact = 'Enter an email address or a URL.';
-		}
 
 		// "auto" = same owner as the music folder; otherwise must be a listed user.
 		let owner: Settings['owner'] = null;
@@ -61,7 +57,6 @@ export const actions: Actions = {
 			...(await readSettings()), // keep the cookie-browser fields, saved by their own form
 			libraryDir,
 			concurrency,
-			mbContact,
 			owner,
 			existingFiles,
 			artSize

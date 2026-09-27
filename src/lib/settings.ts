@@ -30,7 +30,6 @@ export interface FileOwner {
 export interface Settings {
 	libraryDir: string;
 	concurrency: number;
-	mbContact: string;
 	/** null = same owner as the music folder */
 	owner: FileOwner | null;
 	existingFiles: ExistingFileMode;

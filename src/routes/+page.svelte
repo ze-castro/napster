@@ -2,13 +2,13 @@
 	import JobList from '$lib/components/job-list.svelte';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Input } from '$lib/components/ui/input/index.js';
-	import { jobStream } from '$lib/jobs.svelte';
+	import { useLive } from '$lib/jobs.svelte';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
 
-	const stream = jobStream();
-	const downloads = $derived(stream.jobs.filter((j) => j.kind !== 'retag'));
+	const stream = useLive();
+	const downloads = $derived(stream.jobs.filter((j) => j.kind === 'track' || j.kind === 'playlist'));
 
 	let url = $state('');
 	let submitting = $state(false);
@@ -71,12 +71,6 @@
 		<p class="text-sm text-muted-foreground">
 			Saving to <span class="font-mono">{data.libraryDir}</span>
 		</p>
-		{#if !data.hasMbContact}
-			<p class="text-sm text-amber-600 dark:text-amber-400">
-				Songs will only get YouTube's tags.
-				<a href="/settings" class="underline underline-offset-4">Add a MusicBrainz contact</a> for full metadata.
-			</p>
-		{/if}
 	</form>
 
 	<JobList jobs={downloads} kind="download" empty="Songs are filed as Album Artist / Album / 01. Title.m4a." />

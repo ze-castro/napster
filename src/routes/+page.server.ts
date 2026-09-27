@@ -3,5 +3,5 @@ import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async () => {
 	const settings = await readSettings();
-	return { libraryDir: settings.libraryDir, hasMbContact: settings.mbContact !== '' };
+	return { libraryDir: settings.libraryDir };
 };

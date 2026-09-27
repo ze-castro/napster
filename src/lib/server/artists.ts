@@ -50,14 +50,28 @@ function dedupe(names: string[]): string[] {
  * credits: ordered artist names (primary first). Title "feat." text is only used for
  * names when the credits list nobody but the primary artist.
  */
-export function creditTrack(credits: string[], title: string): { artist?: string; title: string } {
+/**
+ * Splits credits into one main artist, the featured artists and the bare title.
+ * Title "feat." text only adds names when the credits list nobody but the main artist.
+ */
+export function creditParts(credits: string[], title: string): { artist?: string; featured: string[]; title: string } {
 	const { base, names } = stripFeat(title);
 	const all = dedupe(credits.length > 1 ? credits : [...credits, ...names]);
-	const [primary, ...featured] = all;
-	return {
-		artist: primary,
-		title: featured.length ? `${base} (ft. ${featured.join(', ')})` : base
-	};
+	const [artist, ...featured] = all;
+	return { artist, featured, title: base };
+}
+
+/** Joins a bare title and featured artists: "Song (ft. A, B)". */
+export function withFeatured(title: string, featured: string[]): string {
+	const base = stripFeat(title).base || title.trim();
+	const names = dedupe(featured.map((f) => f.trim()));
+	return names.length ? `${base} (ft. ${names.join(', ')})` : base;
+}
+
+/** credits: ordered artist names (primary first). Returns the single artist and the "(ft. …)" title. */
+export function creditTrack(credits: string[], title: string): { artist?: string; title: string } {
+	const parts = creditParts(credits, title);
+	return { artist: parts.artist, title: withFeatured(parts.title, parts.featured) };
 }
 
 /** Most frequent name; ties go to whichever appears first in the list. */

@@ -1,51 +1,33 @@
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { ArtSource } from '$lib/types';
-import { findDeezerCover } from './deezer';
 import { getImage } from './http';
 import { run } from './proc';
 import { imageSize } from './tagging';
 
 export interface ArtCandidate {
 	source: ArtSource;
-	/** Lazily fetches the image to a local path; undefined if unavailable. */
+	/** Lazily provides a local image path; undefined if unavailable. */
 	fetch: () => Promise<string | undefined>;
 }
 
-function remote(source: ArtSource, dir: string, name: string, url: () => Promise<string | undefined>): ArtCandidate {
+/** An image from a URL (Deezer, or one pasted by the user), downloaded when needed. */
+export function remoteCover(source: ArtSource, dir: string, url: string | undefined): ArtCandidate {
 	return {
 		source,
 		fetch: async () => {
-			const u = await url();
-			if (!u) return undefined;
-			const img = await getImage(u);
+			if (!url || !/^https?:\/\//i.test(url)) return undefined;
+			const img = await getImage(url);
 			if (!img) return undefined;
-			const path = join(dir, `${name}.src`);
+			const path = join(dir, `${source}.src`);
 			await writeFile(path, img);
 			return path;
 		}
 	};
 }
 
-/** Deezer first (always), then local fallbacks: the YouTube thumbnail or the cover already embedded. */
-export function artCandidates(opts: {
-	dir: string;
-	size: number;
-	artist?: string;
-	album?: string;
-	title?: string;
-	fallbacks?: { source: ArtSource; path: string }[];
-}): ArtCandidate[] {
-	const list: ArtCandidate[] = [];
-	if (opts.artist) {
-		const { artist, album, title, size } = opts;
-		list.push(remote('deezer', opts.dir, 'deezer', () => findDeezerCover({ artist, album, title, size })));
-	}
-	for (const f of opts.fallbacks ?? []) {
-		list.push({ source: f.source, fetch: async () => f.path });
-	}
-	return list;
-}
+/** An image already on disk: YouTube thumbnail, embedded cover, or an upload. */
+export const localCover = (source: ArtSource, path: string): ArtCandidate => ({ source, fetch: async () => path });
 
 /**
  * Center-crops to a square, caps at `size` px (never upscales) and re-encodes as JPEG
@@ -69,7 +51,7 @@ export async function squareJpeg(input: string, output: string, size: number): P
 	]);
 }
 
-/** One cover per album: first candidate that yields a usable square image wins. */
+/** One cover per album: the first candidate that yields a usable square image wins. */
 export async function prepareCover(
 	candidates: ArtCandidate[],
 	output: string,
@@ -81,7 +63,7 @@ export async function prepareCover(
 			if (!src) continue;
 			await squareJpeg(src, output, size);
 			const dims = await imageSize(output);
-			if (dims && dims.width === dims.height && dims.width >= 300) return c.source;
+			if (dims && dims.width === dims.height && dims.width >= 150) return c.source;
 		} catch {
 			// bad image or network error: try the next source
 		}

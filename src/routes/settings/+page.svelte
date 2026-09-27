@@ -15,7 +15,6 @@
 	// Writable deriveds: editable locally, reset to saved values whenever `data` reloads.
 	let libraryDir = $derived(data.settings.libraryDir);
 	let concurrency = $derived(data.settings.concurrency);
-	let mbContact = $derived(data.settings.mbContact);
 	let owner = $derived(data.settings.owner ? String(data.settings.owner.uid) : 'auto');
 	let existingFiles = $derived<string>(data.settings.existingFiles);
 	let artSize = $derived(String(data.settings.artSize));
@@ -150,14 +149,6 @@
 		</div>
 
 
-		<div class="flex flex-col gap-2">
-			<Label for="mbContact">MusicBrainz contact</Label>
-			<Input id="mbContact" name="mbContact" type="text" bind:value={mbContact} autocomplete="email" placeholder="you@example.com" />
-			<p class="text-sm text-muted-foreground">
-				MusicBrainz requires an email or URL to identify the app. Without it, songs use YouTube's tags only.
-			</p>
-			{#if errors?.mbContact}<p class="text-sm text-destructive">{errors.mbContact}</p>{/if}
-		</div>
 
 		<div class="flex flex-col gap-2">
 			<Label for="concurrency">Songs downloaded at the same time</Label>

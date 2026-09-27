@@ -33,8 +33,3 @@ export function safeSegment(s: string | undefined, fallback: string): string {
 		.trim();
 	return cleaned || fallback;
 }
-
-/** Escapes Lucene special characters for MusicBrainz search queries. */
-export function lucene(s: string): string {
-	return s.replace(/([+\-&|!(){}[\]^"~*?:\\/])/g, '\\$1');
-}

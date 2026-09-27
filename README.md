@@ -16,7 +16,9 @@ A self-hosted web app that turns YouTube Music links into a tidy, fully tagged m
 ## Features
 
 - **Best audio, no re-encoding.** yt-dlp downloads YouTube's best AAC stream as-is.
-- **Whole-album matching.** Albums are matched on [MusicBrainz](https://musicbrainz.org) as a whole, by comparing tracklists, so songs never drift onto compilations or deluxe editions. Single songs are matched by title and artist, with "(Official Video)", "(Lyrics)" and similar removed first.
+- **Deezer metadata.** Tags and covers come from [Deezer](https://www.deezer.com). Albums are matched as a whole, by comparing tracklists, so songs never drift onto compilations or deluxe editions. Single songs are matched by title, artist and length, with "(Official Video)", "(Lyrics)" and similar removed first.
+- **You decide when it's unsure.** Anything without a confident match waits under **Needs input**: compare your tags with Deezer's closest result, search Deezer yourself, or type the tags and pick a cover by hand. Downloads wait safely on disk until you save or discard them.
+- **Edit tags any time.** Open any library folder in the same editor, with a backup and Undo.
 - **Clean artist tags.** One artist per track; everyone else goes into the title as `(ft. A, B)`. Every song on an album shares one album artist (the most frequent one), so albums show up as one album in Navidrome, Jellyfin and Plex.
 - **Square covers.** Covers come from Deezer, at 1000 or 500 px, and fall back to the YouTube thumbnail or the existing cover, cropped square.
 - **Every file is verified.** It's read back after writing to check its tags and cover.
@@ -40,14 +42,13 @@ The shadcn-svelte components are committed in `src/lib/components/ui/`. If that 
 
 ```sh
 bunx shadcn-svelte@latest init   # accept the defaults: src/app.css and the $lib aliases
-bunx shadcn-svelte@latest add button input badge progress label select radio-group switch textarea checkbox sheet tabs collapsible
+bunx shadcn-svelte@latest add button input badge progress label select radio-group switch textarea checkbox sheet tabs collapsible dialog
 ```
 
 Open http://localhost:5173 and go to **Settings**:
 
 1. Set the **Music folder** (a full path; in dev it defaults to `~/Downloads`).
-2. Add your email as the **MusicBrainz contact** (required by their API).
-3. Under **YouTube cookies**, pick your browser and click **Import now and save**.
+2. Under **YouTube cookies**, pick your browser and click **Import now and save**.
 
 On macOS, Chrome-based browsers ask for Keychain access on import, and Safari needs Full Disk Access for your terminal.
 
@@ -75,7 +76,7 @@ docker compose pull && docker compose up -d     # or: docker compose up -d --bui
 docker compose logs -f
 ```
 
-**3. Finish setup** in **Settings**: keep the music folder as `/music`, pick the **file owner** (the user that owns your music), and add the MusicBrainz contact.
+**3. Finish setup** in **Settings**: keep the music folder as `/music` and pick the **file owner** (the user that owns your music).
 
 **4. Send cookies.** There's no browser on the server, so send cookies from your computer to the server's LAN address:
 
@@ -102,7 +103,8 @@ docker compose exec napster /opt/yt-dlp/bin/pip install -U "yt-dlp[default]"
 
 | What | Where |
 |---|---|
-| Settings, history, backup list, cookies, cover thumbnails | `data/` |
+| Settings, history, reviews, backup list, cookies, cover thumbnails | `data/` |
+| Downloads waiting under **Needs input** | `data/pending/` |
 | Downloaded and re-tagged music | the music folder |
 | Backups of re-tagged originals | `<music folder>/.napster-backups/` (skipped by Navidrome via `.ndignore`) |
 

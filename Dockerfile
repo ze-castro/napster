@@ -28,5 +28,7 @@ ENV NODE_ENV=production \
 	DATA_DIR=/data \
 	WORK_DIR=/tmp/napster \
 	XDG_CACHE_HOME=/tmp/cache
+# Cover uploads in the tag editor; adapter-node's default request limit is 512 KB.
+ENV BODY_SIZE_LIMIT=20M
 EXPOSE 3000
 CMD ["bun", "build/index.js"]

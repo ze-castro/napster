@@ -1,4 +1,4 @@
-export const DEFAULT_UA = 'napster/0.2';
+export const DEFAULT_UA = 'napster/1.0';
 
 export async function getJson<T>(url: string, userAgent = DEFAULT_UA, timeoutMs = 15000): Promise<T | undefined> {
 	const res = await fetch(url, {
@@ -10,7 +10,9 @@ export async function getJson<T>(url: string, userAgent = DEFAULT_UA, timeoutMs 
 	return (await res.json()) as T;
 }
 
-/** Downloads a binary; returns undefined for 404 or non-image responses. Follows redirects (CAA uses them). */
+const MAX_IMAGE_BYTES = 15 * 1024 * 1024;
+
+/** Downloads an image; undefined for errors, non-images or anything over 15 MB. Follows redirects. */
 export async function getImage(url: string, timeoutMs = 20000): Promise<Buffer | undefined> {
 	const res = await fetch(url, {
 		headers: { 'User-Agent': DEFAULT_UA },
@@ -18,5 +20,7 @@ export async function getImage(url: string, timeoutMs = 20000): Promise<Buffer |
 	});
 	if (!res.ok) return undefined;
 	if (!res.headers.get('content-type')?.startsWith('image/')) return undefined;
-	return Buffer.from(await res.arrayBuffer());
+	if (Number(res.headers.get('content-length') ?? 0) > MAX_IMAGE_BYTES) return undefined;
+	const buf = Buffer.from(await res.arrayBuffer());
+	return buf.length <= MAX_IMAGE_BYTES ? buf : undefined;
 }

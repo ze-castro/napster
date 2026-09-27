@@ -1,5 +1,8 @@
+name: napster
+
 services:
   napster:
+    container_name: napster
     # Set NAPSTER_IMAGE in .env to pull a prebuilt image; otherwise `docker compose up -d --build` builds it here.
     image: ${NAPSTER_IMAGE:-napster:local}
     build: .

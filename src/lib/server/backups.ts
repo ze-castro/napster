@@ -87,8 +87,10 @@ export function recordCurrentPaths(id: string, current: Map<string, string>) {
 }
 
 /** Puts every original file back where it was and removes the re-tagged versions. */
-export function restoreBackup(id: string): Promise<void> {
+/** Restores a backup; returns the files it moved back (current path → original path). */
+export function restoreBackup(id: string): Promise<Map<string, string>> {
 	return withLibraryLock(async () => {
+		const moves = new Map<string, string>();
 		const backup = ((await readJson<Backup[]>(FILE)) ?? []).find((b) => b.id === id);
 		if (!backup) throw new Error('Backup not found.');
 		const root = backup.libraryDir;
@@ -108,6 +110,7 @@ export function restoreBackup(id: string): Promise<void> {
 				assertInside(root, current);
 				await unlink(current).catch(() => undefined);
 				touchedDirs.add(dirname(current));
+				moves.set(current, original);
 			}
 			const stored = join(folder, f.stored);
 			if (!(await exists(dirname(original)))) {
@@ -127,7 +130,21 @@ export function restoreBackup(id: string): Promise<void> {
 			const i = list.findIndex((b) => b.id === id);
 			if (i >= 0) list.splice(i, 1);
 		});
+		return moves;
 	});
+}
+
+/** Moves recorded in backup records (original → where the re-tag put it), for finding files later. */
+export async function backupMoves(): Promise<{ from: string; to: string; at: number }[]> {
+	const out: { from: string; to: string; at: number }[] = [];
+	for (const b of (await readJson<Backup[]>(FILE)) ?? []) {
+		for (const f of b.files) {
+			if (f.current && f.current !== f.original) {
+				out.push({ from: resolve(b.libraryDir, f.original), to: resolve(b.libraryDir, f.current), at: b.createdAt });
+			}
+		}
+	}
+	return out;
 }
 
 export function deleteBackup(id: string): Promise<void> {

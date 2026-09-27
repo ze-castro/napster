@@ -15,35 +15,36 @@
 	// Running jobs start expanded, finished ones collapsed, until the user toggles them.
 	let toggled = $state<Record<string, boolean>>({});
 	const isRunning = (j: JobState) => j.status === 'running' || j.status === 'resolving';
-	const isOpen = (j: JobState) => toggled[j.id] ?? isRunning(j);
+	const isOpen = (j: JobState) => toggled[j.id] ?? (isRunning(j) || j.status === 'needs-input');
 
 	let busy = $state<string | null>(null);
 	let actionError = $state('');
 	let clearing = $state(false);
-	const finishedCount = $derived(jobs.filter((j) => !isRunning(j)).length);
+	const finishedCount = $derived(jobs.filter((j) => j.status === 'done' || j.status === 'failed').length);
 
 	const statusLabel: Record<TrackState['status'], string> = {
 		queued: 'Queued',
 		downloading: 'Downloading',
 		waiting: 'Waiting for album',
 		tagging: 'Tagging',
+		'needs-input': 'Needs input',
 		done: 'Saved',
 		skipped: 'Already in library',
 		failed: 'Failed'
 	};
 
-	const sourceLabel: Record<AlbumMatch['source'], string> = {
-		musicbrainz: 'MusicBrainz',
-		youtube: 'YouTube tags',
-		existing: 'the existing tags'
-	};
-
 	const artLabel: Record<NonNullable<AlbumMatch['artSource']>, string> = {
-		coverartarchive: 'Cover Art Archive',
 		deezer: 'Deezer',
 		youtube: 'the YouTube thumbnail',
-		existing: 'the existing cover'
+		existing: 'the existing cover',
+		upload: 'an uploaded image',
+		url: 'an image URL'
 	};
+
+	/** Review ids still open for a job, in track order. */
+	const openReviews = (job: JobState) => [
+		...new Set(job.tracks.filter((t) => t.status === 'needs-input' && t.reviewId).map((t) => t.reviewId!))
+	];
 
 	const count = (job: JobState, s: TrackState['status']) => job.tracks.filter((t) => t.status === s).length;
 
@@ -55,9 +56,10 @@
 			const finished = total - job.tracks.filter((t) => !['done', 'skipped', 'failed'].includes(t.status)).length;
 			return `${finished} of ${total}`;
 		}
-		const verb = job.kind === 'retag' ? 're-tagged' : 'saved';
+		const verb = job.kind === 'retag' || job.kind === 'edit' ? 'updated' : 'saved';
 		let s = `${count(job, 'done')} of ${total} ${verb}`;
-		if (count(job, 'skipped')) s += `, ${count(job, 'skipped')} already there`;
+		if (count(job, 'needs-input')) s += `, ${count(job, 'needs-input')} need input`;
+		if (count(job, 'skipped')) s += `, ${count(job, 'skipped')} ${job.kind === 'track' || job.kind === 'playlist' ? 'already there' : 'skipped'}`;
 		if (count(job, 'failed')) s += `, ${count(job, 'failed')} failed`;
 		return s;
 	}
@@ -77,20 +79,25 @@
 
 	function dotClass(job: JobState) {
 		if (isRunning(job)) return 'bg-sky-500 animate-pulse';
+		if (job.status === 'needs-input') return 'bg-amber-500 ring-2 ring-amber-500/30';
 		if (job.status === 'failed' || count(job, 'failed')) return 'bg-destructive';
 		if (job.tracks.some((t) => t.warnings.length) || job.albums.some((a) => a.note)) return 'bg-amber-500';
 		return 'bg-emerald-500';
 	}
 
+	/** Restores every backup the job made (a playlist folder can make one per song). */
 	async function undo(job: JobState) {
-		if (!job.backupId) return;
+		if (!job.backupIds.length) return;
 		if (!confirm(`Restore the original files and tags for “${job.title}”?`)) return;
 		busy = job.id;
 		actionError = '';
-		const res = await fetch(`/api/backups/${encodeURIComponent(job.backupId)}/restore`, { method: 'POST' });
-		if (!res.ok) {
-			const body = (await res.json().catch(() => null)) as { message?: string } | null;
-			actionError = body?.message ?? 'Restore failed.';
+		for (const id of [...job.backupIds].reverse()) {
+			const res = await fetch(`/api/backups/${encodeURIComponent(id)}/restore`, { method: 'POST' });
+			if (!res.ok) {
+				const body = (await res.json().catch(() => null)) as { message?: string } | null;
+				actionError = body?.message ?? 'Restore failed.';
+				break;
+			}
 		}
 		await invalidate('app:backups');
 		busy = null;
@@ -103,7 +110,7 @@
 	}
 
 	const badgeVariant = (s: TrackState['status']) =>
-		s === 'failed' ? 'destructive' : s === 'done' ? 'default' : s === 'skipped' ? 'outline' : 'secondary';
+		s === 'failed' ? 'destructive' : s === 'done' ? 'default' : s === 'skipped' || s === 'needs-input' ? 'outline' : 'secondary';
 </script>
 
 <section class="flex flex-col gap-3" aria-live="polite">
@@ -140,11 +147,22 @@
 						{/if}
 
 						<Collapsible.Content class="flex flex-col gap-3 px-3 pb-4 pt-1">
+							{#if openReviews(job).length}
+								<div class="flex flex-wrap items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm">
+									<span class="flex-1">
+										{openReviews(job).length === 1
+											? 'Deezer needs your help with this one.'
+											: `${openReviews(job).length} groups need your input.`}
+									</span>
+									<Button size="sm" href={`/review?id=${encodeURIComponent(openReviews(job)[0])}`}>Review</Button>
+								</div>
+							{/if}
+
 							{#if job.restored}
 								<Badge variant="outline" class="self-start">Restored</Badge>
-							{:else if job.backupId && !isRunning(job)}
+							{:else if job.backupIds.length && !isRunning(job)}
 								<Button size="sm" variant="outline" class="self-start" disabled={busy === job.id} onclick={() => undo(job)}>
-									{busy === job.id ? 'Restoring…' : 'Undo re-tag'}
+									{busy === job.id ? 'Restoring…' : 'Undo'}
 								</Button>
 							{/if}
 
@@ -158,16 +176,16 @@
 										<span class="font-medium">{album.album}</span> by {album.albumArtist}{album.year ? ` (${album.year})` : ''}
 									</p>
 									<p class="text-muted-foreground">
-										{#if album.source === 'musicbrainz' && album.releaseId}
-											Matched on
+										{#if album.deezerAlbumId}
+											{album.source === 'manual' ? 'Picked on' : 'Matched on'}
 											<a
 												class="underline underline-offset-4"
-												href={`https://musicbrainz.org/release/${album.releaseId}`}
+												href={`https://www.deezer.com/album/${album.deezerAlbumId}`}
 												target="_blank"
-												rel="noreferrer">MusicBrainz</a
-											>, {album.matched} of {album.total} tracks.
+												rel="noreferrer">Deezer</a
+											>{album.source === 'deezer' ? `, ${album.matched} of ${album.total} songs` : ''}.
 										{:else}
-											Tagged from {sourceLabel[album.source]}.
+											Tagged by hand.
 										{/if}
 										{#if album.artSource}Cover from {artLabel[album.artSource]}.{/if}
 									</p>
