@@ -1,7 +1,8 @@
-import { readdir, readFile } from 'node:fs/promises';
+import { readdir, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { cookieArgs } from './cookies';
 import { run } from './proc';
+import { MIN_AUDIO_KBPS } from './tagging';
 
 export interface ResolvedEntry {
 	videoId: string;
@@ -31,6 +32,9 @@ export interface YtInfo {
 	upload_date?: string;
 	uploader?: string;
 	duration?: number;
+	format_id?: string;
+	/** Bitrate of the selected source stream, kbps. */
+	abr?: number;
 }
 
 export interface DownloadResult {
@@ -142,10 +146,38 @@ export async function resolveUrl(url: string, kind: 'track' | 'playlist', workDi
 }
 
 /**
- * Downloads the best AAC stream (format 140) as-is.
- * Only when no m4a stream exists does yt-dlp transcode to AAC.
+ * 140 = AAC 128k (copied as-is). 251 = Opus ~130–160k (transcoded to AAC).
+ * 139 (HE-AAC 48k) is only reachable through the last fallbacks.
  */
+const FORMAT = '140/251/bestaudio[abr>=96]/bestaudio/best';
+const ATTEMPTS = 2;
+
+const isLowQuality = (info: YtInfo) =>
+	info.format_id === '139' || (info.abr !== undefined && info.abr < MIN_AUDIO_KBPS);
+
+/** yt-dlp skips files that already exist, so a retry needs a clean slate. */
+async function clearDownload(dir: string) {
+	for (const f of await readdir(dir)) {
+		if (/^(audio|thumb|info)\./.test(f)) await rm(join(dir, f), { force: true });
+	}
+}
+
 export async function download(
+	videoId: string,
+	dir: string,
+	onProgress: (pct: number) => void
+): Promise<DownloadResult> {
+	let result = await downloadOnce(videoId, dir, onProgress);
+	// YouTube's format list varies per request; a missing 140 often shows up on a second try.
+	for (let i = 1; i < ATTEMPTS && isLowQuality(result.info); i++) {
+		await clearDownload(dir);
+		await new Promise((r) => setTimeout(r, 5000));
+		result = await downloadOnce(videoId, dir, onProgress);
+	}
+	return result;
+}
+
+async function downloadOnce(
 	videoId: string,
 	dir: string,
 	onProgress: (pct: number) => void
@@ -160,12 +192,12 @@ export async function download(
 			...cookies,
 			'--no-playlist',
 			'-f',
-			'bestaudio[ext=m4a]/bestaudio/best',
+			FORMAT,
 			'-x',
 			'--audio-format',
 			'm4a',
 			'--audio-quality',
-			'0',
+			'192K',
 			'--write-info-json',
 			'--write-thumbnail',
 			'--convert-thumbnails',

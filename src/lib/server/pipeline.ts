@@ -33,7 +33,7 @@ import {
 } from './reviews';
 import { recordMoves } from './moves';
 import { toTags, type Tags } from './tags';
-import { extractCover, probeFile, verify, writeTags } from './tagging';
+import { extractCover, MIN_AUDIO_KBPS, probeFile, verify, writeTags } from './tagging';
 import { normalize } from './text';
 import { download, type ResolvedEntry, type YtInfo } from './ytdlp';
 
@@ -183,6 +183,9 @@ export async function finishGroup(
 					if (!v.artOk) throw new Error('Album art did not verify after writing.');
 					if (v.mismatched.length) it.track.warnings.push(`Tags did not verify: ${v.mismatched.join(', ')}`);
 					if (v.missing.length) it.track.warnings.push(`Missing: ${v.missing.join(', ')}`);
+					if (v.audioKbps !== undefined && v.audioKbps < MIN_AUDIO_KBPS) {
+						it.track.warnings.push(`Low audio quality: ${v.audioKbps} kbps.`);
+					}
 					it.track.title = t.title ?? it.track.title;
 					written.set(it, { out, tags: t });
 				} catch (err) {

@@ -1,6 +1,9 @@
 import { run } from './proc';
 import { REQUIRED_TAGS, type Tags } from './tags';
 
+/** Below this an AAC file is almost certainly YouTube's 48k HE-AAC (format 139), not the 128k stream. */
+export const MIN_AUDIO_KBPS = 96;
+
 /** Remuxes (no re-encode) with fresh tags and the cover as an attached picture. */
 export async function writeTags(audio: string, cover: string, tags: Tags, output: string) {
 	const meta: [string, string | undefined][] = [
@@ -46,6 +49,7 @@ interface Probe {
 	streams?: {
 		codec_type: string;
 		codec_name?: string;
+		bit_rate?: string;
 		width?: number;
 		height?: number;
 		disposition?: { attached_pic?: number };
@@ -56,6 +60,7 @@ export interface Verification {
 	artOk: boolean;
 	missing: string[];
 	mismatched: string[];
+	audioKbps?: number;
 }
 
 const PROBE_KEYS: Record<(typeof REQUIRED_TAGS)[number], string> = {
@@ -73,7 +78,7 @@ export async function verify(file: string, expected: Tags): Promise<Verification
 		'-v',
 		'error',
 		'-show_entries',
-		'format=duration:format_tags:stream=codec_type,codec_name,width,height:stream_disposition=attached_pic',
+		'format=duration:format_tags:stream=codec_type,codec_name,bit_rate,width,height:stream_disposition=attached_pic',
 		'-of',
 		'json',
 		file
@@ -102,7 +107,8 @@ export async function verify(file: string, expected: Tags): Promise<Verification
 			if (key === 'year' ? !got.startsWith(String(want)) : got !== String(want)) mismatched.push(key);
 		}
 	}
-	return { artOk, missing, mismatched };
+	const kbps = Number(audio?.bit_rate) / 1000;
+	return { artOk, missing, mismatched, audioKbps: kbps > 0 ? Math.round(kbps) : undefined };
 }
 
 /** Reads a file's current tags (lowercased keys) and duration. */
