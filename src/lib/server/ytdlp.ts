@@ -83,9 +83,9 @@ function baseArgs(): string[] {
 		'--no-warnings',
 		'--color',
 		'never',
-		// The TV client isn't subject to the web client's download restrictions (the usual 403 cause).
+		// Let yt-dlp pick its default clients; forcing the TV client now fails or drops formats.
 		'--extractor-args',
-		'youtube:player_client=tv;playback_wait=0',
+		'youtube:playback_wait=0',
 		'--sleep-requests',
 		'1'
 	];
