@@ -10,7 +10,8 @@ export function run(
 	cmd: string,
 	args: string[],
 	onLine?: (line: string) => void,
-	timeoutMs?: number
+	timeoutMs?: number,
+	onErrLine?: (line: string) => void
 ): Promise<RunResult> {
 	return new Promise((resolvePromise, reject) => {
 		const child = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'] });
@@ -24,6 +25,7 @@ export function run(
 		let stdout = '';
 		let stderr = '';
 		let buffer = '';
+		let errBuffer = '';
 
 		child.stdout.setEncoding('utf8');
 		child.stderr.setEncoding('utf8');
@@ -39,6 +41,11 @@ export function run(
 		child.stderr.on('data', (chunk: string) => {
 			// Keep only the tail; yt-dlp can be chatty.
 			stderr = (stderr + chunk).slice(-8000);
+			if (!onErrLine) return;
+			errBuffer += chunk;
+			const lines = errBuffer.split('\n');
+			errBuffer = lines.pop() ?? '';
+			for (const line of lines) onErrLine(line);
 		});
 
 		child.on('error', (err) => {
@@ -47,6 +54,8 @@ export function run(
 		});
 		child.on('close', (code) => {
 			clearTimeout(timer);
+			// The last line usually holds the ERROR and has no trailing newline.
+			if (onErrLine && errBuffer) onErrLine(errBuffer);
 			if (timedOut) reject(new Error(`${cmd} took longer than ${Math.round(timeoutMs! / 1000)} s and was stopped.`));
 			else if (code === 0) resolvePromise({ stdout, stderr });
 			else {

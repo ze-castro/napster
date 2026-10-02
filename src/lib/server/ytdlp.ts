@@ -82,12 +82,20 @@ function baseArgs(): string[] {
 	return [
 		'--color',
 		'never',
-		// Let yt-dlp pick its default clients; forcing the TV client now fails or drops formats.
+		// tv still serves 140/251 without a PO token; the others are fallbacks, in priority order.
 		'--extractor-args',
-		'youtube:player_client=tv;playback_wait=0',
+		'youtube:player_client=tv,web_music,web_safari;playback_wait=0',
 		'--sleep-requests',
 		'1'
 	];
+}
+
+/** Forwards yt-dlp's warnings and errors to the container log, tagged with what was being fetched. */
+function logStderr(label: string) {
+	return (line: string) => {
+		if (line.startsWith('ERROR:')) console.error(`[napster] yt-dlp ${label}: ${line}`);
+		else if (line.startsWith('WARNING:')) console.warn(`[napster] yt-dlp ${label}: ${line}`);
+	};
 }
 
 /** Points at the likely fix when YouTube blocks an anonymous request. */
@@ -116,7 +124,7 @@ async function waitTurn(): Promise<void> {
 export async function resolveUrl(url: string, kind: 'track' | 'playlist', workDir: string): Promise<ResolvedUrl> {
 	const cookies = await cookieArgs(workDir);
 	if (kind === 'track') {
-		const { stdout } = await withCookieHint(cookies, run('yt-dlp', [...baseArgs(), ...cookies, '-J', '--no-playlist', '--', url]));
+		const { stdout } = await withCookieHint(cookies, run('yt-dlp', [...baseArgs(), ...cookies, '-J', '--no-playlist', '--', url], undefined, undefined, logStderr(url)));
 		const info = JSON.parse(stdout) as YtInfo;
 		return {
 			kind,
@@ -125,7 +133,7 @@ export async function resolveUrl(url: string, kind: 'track' | 'playlist', workDi
 		};
 	}
 
-	const { stdout } = await withCookieHint(cookies, run('yt-dlp', [...baseArgs(), ...cookies, '-J', '--flat-playlist', '--', url]));
+	const { stdout } = await withCookieHint(cookies, run('yt-dlp', [...baseArgs(), ...cookies, '-J', '--flat-playlist', '--', url], undefined, undefined, logStderr(url)));
 	const data = JSON.parse(stdout) as {
 		id?: string;
 		title?: string;
@@ -216,7 +224,9 @@ async function downloadOnce(
 		(line) => {
 			const m = /napster\s+([\d.]+)%/.exec(line);
 			if (m) onProgress(Number(m[1]));
-		}
+		},
+		undefined,
+		logStderr(videoId)
 	));
 
 	const files = await readdir(dir);
