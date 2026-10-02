@@ -15,7 +15,7 @@ A self-hosted web app that turns YouTube Music links into a tidy, fully tagged m
 
 ## Features
 
-- **Best audio, no re-encoding.** yt-dlp downloads YouTube's best AAC stream as-is.
+- **Best audio.** yt-dlp takes YouTube's AAC stream as-is when it's offered, otherwise converts the Opus stream to AAC at 192 kbps. Low-bitrate (48 kbps) streams are retried and flagged.
 - **Deezer metadata.** Tags and covers come from [Deezer](https://www.deezer.com). Albums are matched as a whole, by comparing tracklists, so songs never drift onto compilations or deluxe editions. Single songs are matched by title, artist and length, with "(Official Video)", "(Lyrics)" and similar removed first.
 - **You decide when it's unsure.** Anything without a confident match waits under **Needs input**: compare your tags with Deezer's closest result, search Deezer yourself, or type the tags and pick a cover by hand. Downloads wait safely on disk until you save or discard them.
 - **Edit tags any time.** Open any library folder in the same editor, with a backup and Undo.
@@ -23,7 +23,7 @@ A self-hosted web app that turns YouTube Music links into a tidy, fully tagged m
 - **Square covers.** Covers come from Deezer, at 1000 or 500 px, and fall back to the YouTube thumbnail or the existing cover, cropped square.
 - **Every file is verified.** It's read back after writing to check its tags and cover.
 - **Safe re-tagging.** Originals are hard-linked into a hidden backup folder first (no extra disk space), so any re-tag can be undone.
-- **YouTube cookies.** Upload a `cookies.txt`, read them straight from a browser, or sync them from your computer with a script. Only youtube.com cookies are kept.
+- **YouTube cookies.** Upload a `cookies.txt` in Settings, or read them straight from a browser when running locally. A helper script exports just the youtube.com cookies from your computer's browser. Only youtube.com cookies are kept.
 - **Easy to run.** No database: settings and history are small JSON files. Everything is configured in the app's Settings page.
 
 ## Stack
@@ -48,13 +48,13 @@ bunx shadcn-svelte@latest add button input badge progress label select radio-gro
 Open http://localhost:5173 and go to **Settings**:
 
 1. Set the **Music folder** (a full path; in dev it defaults to `~/Downloads`).
-2. Under **YouTube cookies**, pick your browser and click **Import now and save**.
+2. Under **YouTube cookies**, pick your browser, turn on **Refresh before every download**, and click **Import now and save**.
 
 On macOS, Chrome-based browsers ask for Keychain access on import, and Safari needs Full Disk Access for your terminal.
 
 ## Host it (Docker)
 
-The image is built by GitHub Actions and pushed to `ghcr.io/<owner>/<repo>:latest` on every push to `main`.
+The image is built by GitHub Actions and pushed to `ghcr.io/<owner>/<repo>:latest` on every push to `main`. It's `linux/amd64` only. On ARM servers, build it locally with `docker compose up -d --build`.
 
 **1. Configure it.** On the server, next to `compose.yaml`:
 
@@ -78,11 +78,31 @@ docker compose logs -f
 
 **3. Finish setup** in **Settings**: keep the music folder as `/music` and pick the **file owner** (the user that owns your music).
 
-**4. Send cookies.** There's no browser on the server, so send cookies from your computer to the server's LAN address:
+**4. Add cookies.** There's no browser on the server, so export cookies on your computer and upload the file in **Settings → YouTube cookies**.
 
-```sh
-scripts/sync-cookies.sh firefox http://<server-lan-ip>:3000
-```
+YouTube rotates the cookies of any session that's open in a browser, which makes an exported copy stop working soon after ("The provided YouTube account cookies are no longer valid" in the logs). Export a session that the browser then forgets _without signing out_. The steps below are for Safari on macOS. Use a throwaway Google account, because the steps sign you out of Google in Safari, and yt-dlp use can get an account restricted.
+
+1. In Safari → Settings → Privacy → **Manage Website Data…**, remove `youtube` and `google`.
+2. Sign in with the throwaway account at `music.youtube.com`.
+3. In the same tab, go to `https://www.youtube.com/robots.txt` and close any other YouTube or Google tabs.
+4. Quit Safari (⌘Q) so the cookies are written to disk.
+5. Export them. Your terminal needs Full Disk Access to read Safari's cookies.
+
+   ```sh
+   scripts/sync-cookies.sh safari   # writes ~/Downloads/youtube-cookies.txt
+   ```
+
+6. Upload the file in **Settings → YouTube cookies**, then delete it: it's a live login.
+
+   ```sh
+   rm ~/Downloads/youtube-cookies.txt
+   ```
+
+7. Reopen Safari, close the robots.txt tab, and remove `youtube` and `google` website data again. **Don't sign out:** that ends the session on YouTube's side too.
+
+Never open that session in a browser again. Repeat these steps only if the logs show the cookies are invalid again.
+
+In Chrome or Firefox, a private window does the same job: sign in, go to `robots.txt`, export with the "Get cookies.txt LOCALLY" extension, and close the window. `sync-cookies.sh` can't read private-window cookies.
 
 > [!IMPORTANT]
 > napster has no login. Keep it on your local network, or put an authentication layer in front of it (for example Cloudflare Access) before exposing it to the internet.
@@ -101,12 +121,12 @@ docker compose exec napster /opt/yt-dlp/bin/pip install -U "yt-dlp[default]"
 
 ## Where things live
 
-| What | Where |
-|---|---|
-| Settings, history, reviews, backup list, cookies, cover thumbnails | `data/` |
-| Downloads waiting under **Needs input** | `data/pending/` |
-| Downloaded and re-tagged music | the music folder |
-| Backups of re-tagged originals | `<music folder>/.napster-backups/` (skipped by Navidrome via `.ndignore`) |
+| What                                                               | Where                                                                     |
+| ------------------------------------------------------------------ | ------------------------------------------------------------------------- |
+| Settings, history, reviews, backup list, cookies, cover thumbnails | `data/`                                                                   |
+| Downloads waiting under **Needs input**                            | `data/pending/`                                                           |
+| Downloaded and re-tagged music                                     | the music folder                                                          |
+| Backups of re-tagged originals                                     | `<music folder>/.napster-backups/` (skipped by Navidrome via `.ndignore`) |
 
 ## Development
 

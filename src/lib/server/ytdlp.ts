@@ -84,7 +84,7 @@ function baseArgs(): string[] {
 		'never',
 		// tv still serves 140/251 without a PO token; the others are fallbacks, in priority order.
 		'--extractor-args',
-		'youtube:player_client=tv,web_music,web_safari;playback_wait=0',
+		'youtube:player_client=tv,web_safari;playback_wait=0',
 		'--sleep-requests',
 		'1'
 	];
