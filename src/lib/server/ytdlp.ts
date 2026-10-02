@@ -80,12 +80,11 @@ export function parseInput(raw: string): { url: string; kind: 'track' | 'playlis
 
 function baseArgs(): string[] {
 	return [
-		'--no-warnings',
 		'--color',
 		'never',
 		// Let yt-dlp pick its default clients; forcing the TV client now fails or drops formats.
 		'--extractor-args',
-		'youtube:playback_wait=0',
+		'youtube:player_client=tv;playback_wait=0',
 		'--sleep-requests',
 		'1'
 	];
