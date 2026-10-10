@@ -5,7 +5,7 @@ import { config } from './config';
 import { locate } from './moves';
 import { extractCover, probeFile } from './tagging';
 import type { SourceTrack } from './match';
-import { readJson, writeJson } from './store';
+import { db } from './db';
 
 /** A group of songs waiting for the user: no confident Deezer match, or "Edit tags". */
 export interface Review extends ReviewDetail {
@@ -22,43 +22,54 @@ export interface Review extends ReviewDetail {
 	folder?: string;
 }
 
-const FILE = join(config.dataDir, 'reviews.json');
-
 /** Downloaded audio waiting for a review lives here, so it survives restarts. */
 export const pendingDir = (id: string) => join(config.dataDir, 'pending', id);
 
-let chain: Promise<unknown> = Promise.resolve();
-function mutate<T>(fn: (list: Review[]) => T | Promise<T>): Promise<T> {
-	const next = chain.then(async () => {
-		const list = (await readJson<Review[]>(FILE)) ?? [];
-		const result = await fn(list);
-		await writeJson(FILE, list);
-		return result;
-	});
-	chain = next.catch(() => undefined);
-	return next;
-}
+const q = {
+	all: db.query<{ data: string }, []>('SELECT data FROM reviews ORDER BY created_at'),
+	one: db.query<{ data: string }, [string]>('SELECT data FROM reviews WHERE id = ?'),
+	summaries: db.query<ReviewSummary, []>(
+		`SELECT id, job_id AS jobId, kind, title, reason, note, songs, created_at AS createdAt
+		 FROM reviews ORDER BY created_at DESC`
+	),
+	upsert: db.query(
+		`INSERT INTO reviews (id, job_id, kind, title, reason, note, songs, created_at, data)
+		 VALUES ($id, $jobId, $kind, $title, $reason, $note, $songs, $createdAt, $data)
+		 ON CONFLICT (id) DO UPDATE SET
+			job_id = excluded.job_id, kind = excluded.kind, title = excluded.title, reason = excluded.reason,
+			note = excluded.note, songs = excluded.songs, created_at = excluded.created_at, data = excluded.data`
+	),
+	delete: db.query('DELETE FROM reviews WHERE id = ?')
+};
 
-export async function allReviews(): Promise<Review[]> {
-	await chain; // don't read while a write is in flight
-	return (await readJson<Review[]>(FILE)) ?? [];
-}
+const parse = (row: { data: string }) => JSON.parse(row.data) as Review;
 
-export async function getReview(id: string): Promise<Review | undefined> {
-	return (await allReviews()).find((r) => r.id === id);
-}
-
-export function summary(r: Review): ReviewSummary {
-	return {
+function save(r: Review) {
+	q.upsert.run({
 		id: r.id,
 		jobId: r.jobId,
 		kind: r.kind,
 		title: r.title,
 		reason: r.reason,
-		note: r.note,
+		note: r.note ?? null,
 		songs: r.files.length,
-		createdAt: r.createdAt
-	};
+		createdAt: r.createdAt,
+		data: JSON.stringify(r)
+	});
+}
+
+export async function allReviews(): Promise<Review[]> {
+	return q.all.all().map(parse);
+}
+
+export async function getReview(id: string): Promise<Review | undefined> {
+	const row = q.one.get(id);
+	return row ? parse(row) : undefined;
+}
+
+/** The "Needs input" list, newest first; cheap enough to read on every live update. */
+export function reviewSummaries(): ReviewSummary[] {
+	return q.summaries.all().map((r) => ({ ...r, note: r.note ?? undefined }));
 }
 
 /** What the browser gets: everything except server paths, plus files that have gone missing. */
@@ -83,17 +94,12 @@ export async function pathsInReviews(): Promise<Set<string>> {
 	return paths;
 }
 
-export function addReview(r: Review): Promise<void> {
-	return mutate((list) => {
-		list.push(r);
-	});
+export async function addReview(r: Review): Promise<void> {
+	save(r);
 }
 
 export async function removeReview(id: string): Promise<void> {
-	await mutate((list) => {
-		const i = list.findIndex((r) => r.id === id);
-		if (i >= 0) list.splice(i, 1);
-	});
+	q.delete.run(id);
 	await rm(pendingDir(id), { recursive: true, force: true });
 }
 
@@ -116,17 +122,30 @@ export async function reviewForFolder(root: string, folder: string): Promise<Rev
  */
 export async function relinkPaths(moves: Map<string, string>): Promise<void> {
 	if (!moves.size) return;
-	await mutate(async (list) => {
-		for (const r of list) {
+	// Read the moved files' tags first, so the reviews are rewritten in one transaction.
+	const affected = new Set<string>();
+	for (const r of await allReviews()) {
+		if (r.kind === 'download') continue;
+		for (const f of r.files) if (moves.has(f.path)) affected.add(moves.get(f.path)!);
+	}
+	if (!affected.size) return;
+	const tags = new Map<string, Record<string, string> | undefined>();
+	for (const to of affected) tags.set(to, (await probeFile(to).catch(() => undefined))?.tags);
+
+	db.transaction(() => {
+		for (const r of q.all.all().map(parse)) {
 			if (r.kind === 'download') continue;
+			let touched = false;
 			for (const f of r.files) {
 				const to = moves.get(f.path);
 				if (!to) continue;
 				f.path = to;
-				f.originalTags = (await probeFile(to).catch(() => undefined))?.tags ?? f.originalTags;
+				f.originalTags = tags.get(to) ?? f.originalTags;
+				touched = true;
 			}
+			if (touched) save(r);
 		}
-	});
+	})();
 }
 
 /**

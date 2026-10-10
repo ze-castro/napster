@@ -22,7 +22,7 @@ Thumbs.db
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 
-# settings.json / jobs.json in dev
+# napster.db, cookies and pending downloads in dev
 /data
 
 # Server-specific values for compose.yaml

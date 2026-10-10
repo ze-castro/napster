@@ -16,6 +16,7 @@ A self-hosted web app that turns YouTube Music links into a tidy, fully tagged m
 ## Features
 
 - **Best audio.** yt-dlp takes YouTube's AAC stream as-is when it's offered, otherwise converts the Opus stream to AAC at 192 kbps. Low-bitrate (48 kbps) streams are retried and flagged.
+- **Keeps working when YouTube changes.** napster doesn't pin one YouTube "player client". It starts with yt-dlp's own choice and, when a download is refused, asks again in other ways (signed out, other clients, the HLS stream). A PO token provider is built into the Docker image for the clients that need a token. Anything that still fails can be retried from the history with one click.
 - **Deezer metadata.** Tags and covers come from [Deezer](https://www.deezer.com). Albums are matched as a whole, by comparing tracklists, so songs never drift onto compilations or deluxe editions. Single songs are matched by title, artist and length, with "(Official Video)", "(Lyrics)" and similar removed first.
 - **You decide when it's unsure.** Anything without a confident match waits under **Needs input**: compare your tags with Deezer's closest result, search Deezer yourself, or type the tags and pick a cover by hand. Downloads wait safely on disk until you save or discard them.
 - **Edit tags any time.** Open any library folder in the same editor, with a backup and Undo.
@@ -24,11 +25,11 @@ A self-hosted web app that turns YouTube Music links into a tidy, fully tagged m
 - **Every file is verified.** It's read back after writing to check its tags and cover.
 - **Safe re-tagging.** Originals are hard-linked into a hidden backup folder first (no extra disk space), so any re-tag can be undone.
 - **YouTube cookies.** Upload a `cookies.txt` in Settings, or read them straight from a browser when running locally. A helper script exports just the youtube.com cookies from your computer's browser. Only youtube.com cookies are kept.
-- **Easy to run.** No database: settings and history are small JSON files. Everything is configured in the app's Settings page.
+- **Easy to run.** No database server: settings, history, reviews and the backup list live in one SQLite file, `data/napster.db`. Everything is configured in the app's Settings page.
 
 ## Stack
 
-SvelteKit (Svelte 5) · TypeScript · Tailwind CSS v4 · shadcn-svelte · Bun · yt-dlp · ffmpeg · Docker Compose
+SvelteKit (Svelte 5) · TypeScript · Tailwind CSS v4 · shadcn-svelte · Bun (with its built-in SQLite) · yt-dlp · ffmpeg · Docker Compose
 
 ## Run locally (macOS)
 
@@ -48,9 +49,13 @@ bunx shadcn-svelte@latest add button input badge progress label select radio-gro
 Open http://localhost:5173 and go to **Settings**:
 
 1. Set the **Music folder** (a full path; in dev it defaults to `~/Downloads`).
-2. Under **YouTube cookies**, pick your browser, turn on **Refresh before every download**, and click **Import now and save**.
+2. Optional: under **YouTube cookies**, pick your browser, turn on **Refresh before every download**, and click **Import now and save**. Downloads usually work without cookies; add them if YouTube asks you to sign in.
 
 On macOS, Chrome-based browsers ask for Keychain access on import, and Safari needs Full Disk Access for your terminal.
+
+The app has to run under Bun (`bun run dev` does that), because it uses Bun's built-in SQLite.
+
+Locally there is no PO token provider, so napster relies on the YouTube clients that don't ask for a token. To use one anyway, run the [bgutil provider](https://github.com/Brainicism/bgutil-ytdlp-pot-provider), install its yt-dlp plugin, and start napster with `POT_PROVIDER_URL=http://127.0.0.1:4416`. **Settings → Downloads** shows whether it's connected.
 
 ## Host it (Docker)
 
@@ -76,9 +81,11 @@ docker compose pull && docker compose up -d     # or: docker compose up -d --bui
 docker compose logs -f
 ```
 
-**3. Finish setup** in **Settings**: keep the music folder as `/music` and pick the **file owner** (the user that owns your music).
+It's a single container. The PO token provider that YouTube downloads need is built into the image: napster starts it itself, as an unprivileged process that only listens inside the container, and restarts it if it stops.
 
-**4. Add cookies.** There's no browser on the server, so export cookies on your computer and upload the file in **Settings → YouTube cookies**.
+**3. Finish setup** in **Settings**: keep the music folder as `/music` and pick the **file owner** (the user that owns your music). **Settings → Downloads** shows the yt-dlp version and whether the PO token provider is connected.
+
+**4. Add cookies (optional).** Downloads usually work without them. If YouTube answers "Sign in to confirm you're not a bot" from your server's network, export cookies on your computer and upload the file in **Settings → YouTube cookies**. There's no browser on the server to read them from.
 
 YouTube rotates the cookies of any session that's open in a browser, which makes an exported copy stop working soon after ("The provided YouTube account cookies are no longer valid" in the logs). Export a session that the browser then forgets _without signing out_. The steps below are for Safari on macOS. Use a throwaway Google account, because the steps sign you out of Google in Safari, and yt-dlp use can get an account restricted.
 
@@ -113,17 +120,30 @@ In Chrome or Firefox, a private window does the same job: sign in, go to `robots
 docker compose pull && docker compose up -d
 ```
 
+Coming from a version that kept `settings.json`, `history.json`, `reviews.json`, `backups.json` and `moves.json` in `data/`: they are imported into `data/napster.db` on the first start and renamed to `*.json.migrated`. Nothing is lost, and once you've checked that everything is there you can delete the `.migrated` files.
+
+### When downloads fail
+
+Open the failed entry in **Downloads**: it says what YouTube objected to, with yt-dlp's own output under **Show details**, and **Try again** retries just the songs that failed.
+
+- _YouTube refused to hand over the audio / wants a PO token_: check **Settings → Downloads**, and the lines marked `[pot-provider]` in `docker compose logs`.
+- _YouTube wants a signed-in session_: add or refresh the cookies (step 4).
+- Everything fails after working for months: YouTube changed something. Update yt-dlp (below). As a stopgap, **Settings → Downloads → Advanced** takes a list of yt-dlp player clients to try first.
+
 YouTube regularly breaks old yt-dlp versions. To get the latest one into the image, bump `ARG YTDLP_REFRESH` in the `Dockerfile` and push. For a quick fix until the container is next recreated:
 
 ```sh
 docker compose exec napster /opt/yt-dlp/bin/pip install -U "yt-dlp[default]"
 ```
 
+The PO token provider (its server and its yt-dlp plugin) is pinned by `ARG POT_PROVIDER_VERSION` at the top of the `Dockerfile`; bump that one value to update both.
+
 ## Where things live
 
 | What                                                               | Where                                                                     |
 | ------------------------------------------------------------------ | ------------------------------------------------------------------------- |
-| Settings, history, reviews, backup list, cookies, cover thumbnails | `data/`                                                                   |
+| Settings, history, reviews, backup list, move log                  | `data/napster.db` (SQLite; `-wal` and `-shm` files next to it are normal) |
+| Cookies, cover thumbnails                                          | `data/`                                                                   |
 | Downloads waiting under **Needs input**                            | `data/pending/`                                                           |
 | Downloaded and re-tagged music                                     | the music folder                                                          |
 | Backups of re-tagged originals                                     | `<music folder>/.napster-backups/` (skipped by Navidrome via `.ndignore`) |

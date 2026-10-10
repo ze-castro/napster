@@ -1,9 +1,12 @@
 <script lang="ts">
   import { goto, invalidate } from '$app/navigation';
   import { SvelteSet } from 'svelte/reactivity';
+  import FolderOpen from '@lucide/svelte/icons/folder';
+  import LoaderCircle from '@lucide/svelte/icons/loader-circle';
+  import Search from '@lucide/svelte/icons/search';
   import FolderCover from '$lib/components/folder-cover.svelte';
   import JobList from '$lib/components/job-list.svelte';
-  import { Badge } from '$lib/components/ui/badge/index.js';
+  import PageHeader from '$lib/components/page-header.svelte';
   import { Button } from '$lib/components/ui/button/index.js';
   import { Checkbox } from '$lib/components/ui/checkbox/index.js';
   import { Input } from '$lib/components/ui/input/index.js';
@@ -286,14 +289,11 @@
   });
 </script>
 
-<main class="mx-auto flex min-h-screen max-w-3xl flex-col gap-6 px-5 py-10">
-  <header class="flex flex-col gap-1">
-    <h1 class="text-4xl font-semibold tracking-tight">Library</h1>
-    <p class="text-sm text-muted-foreground">
-      Folders in <span class="font-mono">{data.libraryDir}</span>. Re-tagging backs up the originals
-      first, so it can always be undone.
-    </p>
-  </header>
+<main class="mx-auto flex max-w-3xl flex-col gap-6 px-4 py-8 sm:px-5 sm:py-10">
+  <PageHeader title="Library">
+    Folders in <span class="font-mono text-[0.8125rem] break-all">{data.libraryDir}</span>. Re-tagging
+    backs up the originals first, so it can always be undone.
+  </PageHeader>
 
   {#if actionError}
     <p class="text-sm text-destructive" role="alert">{actionError}</p>
@@ -318,14 +318,20 @@
 
     <Tabs.Content value="library" class="flex flex-col gap-3">
       <div class="flex flex-wrap items-center gap-2">
-        <Input
-          type="search"
-          placeholder="Search artist, album or song"
-          bind:value={query}
-          autocomplete="off"
-          class="w-full sm:w-64"
-          aria-label="Search folders"
-        />
+        <div class="relative w-full sm:w-72">
+          <Search
+            class="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground"
+            aria-hidden="true"
+          />
+          <Input
+            type="search"
+            placeholder="Search artist, album or song"
+            bind:value={query}
+            autocomplete="off"
+            class="pl-8"
+            aria-label="Search folders"
+          />
+        </div>
         <div class="flex gap-1" role="group" aria-label="Show">
           {#each [['all', 'All'], ['albums', 'Albums'], ['singles', 'Singles']] as const as [value, label] (value)}
             <Button
@@ -341,7 +347,10 @@
       </div>
 
       <div
-        class="flex min-h-9 items-center justify-between gap-3 rounded-md bg-muted/50 px-3 py-1.5"
+        class={[
+          'sticky top-16 z-10 flex min-h-11 items-center justify-between gap-3 rounded-lg border px-3 py-1.5 backdrop-blur transition-colors',
+          selected.size ? 'border-primary/30 bg-background/95 shadow-sm' : 'bg-muted/60',
+        ]}
       >
         <label class="flex items-center gap-2 text-sm">
           <Checkbox
@@ -365,19 +374,36 @@
       {#if listError}
         <p class="text-sm text-destructive">{listError}</p>
       {:else if loading}
-        <p class="text-sm text-muted-foreground">Reading the music folder…</p>
-      {:else if !shown.length}
-        <p class="text-sm text-muted-foreground">
-          {albums.length ? 'Nothing matches.' : 'No folders with .m4a files yet.'}
+        <p class="flex items-center gap-2 py-6 text-sm text-muted-foreground">
+          <LoaderCircle class="size-4 animate-spin" aria-hidden="true" /> Reading the music folder…
         </p>
+      {:else if !shown.length}
+        <div class="flex flex-col items-center gap-2 rounded-xl border border-dashed px-6 py-10 text-center">
+          <FolderOpen class="size-5 text-muted-foreground/60" aria-hidden="true" />
+          <p class="text-sm text-muted-foreground">
+            {albums.length
+              ? 'Nothing matches that search.'
+              : 'No folders with .m4a files yet. Downloads show up here.'}
+          </p>
+          {#if albums.length && (query || filter !== 'all')}
+            <Button
+              size="sm"
+              variant="outline"
+              onclick={() => {
+                query = '';
+                filter = 'all';
+              }}>Show everything</Button
+            >
+          {/if}
+        </div>
       {:else}
-        <ul class="flex max-h-[36rem] flex-col divide-y overflow-y-auto rounded-md border">
+        <ul class="flex flex-col divide-y overflow-hidden rounded-xl border bg-card">
           {#each shown as { album, songHits } (album.path)}
             {@const folder = folderState.get(album.path)}
             <li
               class={[
-                'flex items-center gap-3 px-3 py-2',
-                selected.has(album.path) && 'bg-muted/40',
+                'flex items-center gap-3 px-3 py-2 transition-colors hover:bg-muted/40',
+                selected.has(album.path) && 'bg-muted/60',
               ]}
             >
               <Checkbox
@@ -390,7 +416,7 @@
                 class="flex min-w-0 flex-1 items-center gap-3 text-left"
                 onclick={() => openFolder(album)}
               >
-                <FolderCover path={album.path} version={album.version} />
+                <FolderCover path={album.path} version={album.version} class="size-11 rounded-md" />
                 <span class="flex min-w-0 flex-col">
                   <span class="truncate font-medium">{album.album}</span>
                   <span class="truncate text-sm text-muted-foreground"
@@ -406,7 +432,9 @@
                 </span>
               </button>
               {#if folder?.status === 'running'}
-                <span class="shrink-0 text-xs text-sky-600 dark:text-sky-400">Re-tagging…</span>
+                <span class="flex shrink-0 items-center gap-1 text-xs text-sky-600 dark:text-sky-400">
+                  <LoaderCircle class="size-3.5 animate-spin" aria-hidden="true" /> Re-tagging
+                </span>
               {:else if folder?.status === 'needs-input' && folder.reviewId}
                 <a
                   class="shrink-0 text-xs text-amber-700 underline underline-offset-4 dark:text-amber-400"
@@ -416,9 +444,9 @@
               {:else if folder?.status === 'failed'}
                 <span class="shrink-0 text-xs text-destructive">Re-tag failed</span>
               {/if}
-              <Badge variant="outline" class="shrink-0">
+              <span class="hidden shrink-0 text-xs text-muted-foreground tabular-nums sm:inline">
                 {album.tracks === 1 ? 'Single' : `${album.tracks} songs`}
-              </Badge>
+              </span>
             </li>
           {/each}
         </ul>
@@ -426,7 +454,7 @@
     </Tabs.Content>
 
     <Tabs.Content value="activity">
-      <JobList jobs={retags} kind="retag" empty="Re-tags you start show up here." />
+      <JobList jobs={retags} kind="retag" title="Re-tags" empty="Re-tags and tag edits you start show up here." />
     </Tabs.Content>
 
     <Tabs.Content value="backups" class="flex flex-col gap-3">
@@ -445,9 +473,9 @@
             {deletingAll ? 'Deleting…' : 'Delete all'}
           </Button>
         </div>
-        <ul class="flex max-h-[36rem] flex-col divide-y overflow-y-auto rounded-md border">
+        <ul class="flex flex-col divide-y overflow-hidden rounded-xl border bg-card">
           {#each data.backups as backup (backup.id)}
-            <li class="flex items-center justify-between gap-4 px-3 py-2">
+            <li class="flex items-center justify-between gap-4 px-3 py-2.5">
               <div class="min-w-0">
                 <p class="truncate">{backup.label}</p>
                 <p class="text-xs text-muted-foreground">
@@ -473,7 +501,9 @@
           {/each}
         </ul>
       {:else}
-        <p class="text-sm text-muted-foreground">No backups. Each re-tag makes one.</p>
+        <div class="rounded-xl border border-dashed px-6 py-10 text-center">
+          <p class="text-sm text-muted-foreground">No backups yet. Every re-tag makes one, so it can be undone.</p>
+        </div>
       {/if}
     </Tabs.Content>
   </Tabs.Root>

@@ -8,14 +8,12 @@ import {
 	type CookieBrowser,
 	EXISTING_FILE_MODES,
 	MAX_CONCURRENCY,
+	PLAYER_CLIENTS_PATTERN,
 	type ArtSize,
 	type ExistingFileMode,
 	type Settings
 } from '$lib/settings';
-import { config } from './config';
-import { readJson, writeJson } from './store';
-
-const FILE = join(config.dataDir, 'settings.json');
+import { db } from './db';
 
 export function defaultSettings(): Settings {
 	return {
@@ -26,13 +24,29 @@ export function defaultSettings(): Settings {
 		artSize: 1000,
 		cookieBrowser: '',
 		cookieProfile: '',
-		cookieAutoRefresh: false
+		cookieAutoRefresh: false,
+		playerClients: ''
 	};
 }
 
-/** Read on every call so edits to settings.json on disk are picked up too. */
+const selectAll = db.query<{ key: string; value: string }, []>('SELECT key, value FROM settings');
+const upsert = db.query('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value');
+
+function stored(): Partial<Settings> {
+	const raw: Record<string, unknown> = {};
+	for (const { key, value } of selectAll.all()) {
+		try {
+			raw[key] = JSON.parse(value);
+		} catch {
+			// unreadable value: the default applies
+		}
+	}
+	return raw as Partial<Settings>;
+}
+
+/** Stored values are validated on every read, so a bad row falls back to its default. */
 export async function readSettings(): Promise<Settings> {
-	const raw = (await readJson<Partial<Settings>>(FILE)) ?? {};
+	const raw = stored();
 	const d = defaultSettings();
 	const owner = raw.owner;
 	return {
@@ -58,12 +72,16 @@ export async function readSettings(): Promise<Settings> {
 			? (raw.cookieBrowser as CookieBrowser)
 			: '',
 		cookieProfile: typeof raw.cookieProfile === 'string' ? raw.cookieProfile : '',
-		cookieAutoRefresh: raw.cookieAutoRefresh === true
+		cookieAutoRefresh: raw.cookieAutoRefresh === true,
+		playerClients:
+			typeof raw.playerClients === 'string' && PLAYER_CLIENTS_PATTERN.test(raw.playerClients) ? raw.playerClients : ''
 	};
 }
 
-export function saveSettings(settings: Settings): Promise<void> {
-	return writeJson(FILE, settings);
+export async function saveSettings(settings: Settings): Promise<void> {
+	db.transaction(() => {
+		for (const [key, value] of Object.entries(settings)) upsert.run(key, JSON.stringify(value));
+	})();
 }
 
 /** Returns an error message, or undefined if the folder is usable. */

@@ -1,5 +1,9 @@
 <script lang="ts">
+	import CircleAlert from '@lucide/svelte/icons/circle-alert';
+	import CircleCheck from '@lucide/svelte/icons/circle-check';
+	import LoaderCircle from '@lucide/svelte/icons/loader-circle';
 	import { enhance } from '$app/forms';
+	import PageHeader from '$lib/components/page-header.svelte';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Input } from '$lib/components/ui/input/index.js';
 	import { Label } from '$lib/components/ui/label/index.js';
@@ -18,6 +22,7 @@
 	let owner = $derived(data.settings.owner ? String(data.settings.owner.uid) : 'auto');
 	let existingFiles = $derived<string>(data.settings.existingFiles);
 	let artSize = $derived(String(data.settings.artSize));
+	let playerClients = $derived(data.settings.playerClients);
 
 	let saving = $state(false);
 	let justSaved = $state(false);
@@ -64,15 +69,25 @@
 	const cookiesExpired = $derived(!!data.cookies.expiresAt && data.cookies.expiresAt < Date.now());
 </script>
 
-<main class="mx-auto flex min-h-screen max-w-2xl flex-col gap-10 px-5 py-10">
-	<header>
-		<h1 class="text-4xl font-semibold tracking-tight">Settings</h1>
-	</header>
+{#snippet card(title: string, description: string, body: import('svelte').Snippet)}
+	<section class="rounded-xl border bg-card">
+		<header class="flex flex-col gap-0.5 border-b px-4 py-3 sm:px-5">
+			<h2 class="font-medium">{title}</h2>
+			<p class="text-sm text-muted-foreground">{description}</p>
+		</header>
+		<div class="flex flex-col gap-6 p-4 sm:p-5">
+			{@render body()}
+		</div>
+	</section>
+{/snippet}
+
+<main class="mx-auto flex max-w-3xl flex-col gap-6 px-4 py-8 sm:px-5 sm:py-10">
+	<PageHeader title="Settings" />
 
 	<form
 		method="POST"
 		action="?/save"
-		class="flex flex-col gap-8"
+		class="flex flex-col gap-6"
 		use:enhance={() => {
 			saving = true;
 			justSaved = false;
@@ -83,106 +98,201 @@
 			};
 		}}
 	>
-		<div class="flex flex-col gap-2">
-			<Label for="libraryDir">Music folder</Label>
-			<Input id="libraryDir" name="libraryDir" bind:value={libraryDir} autocomplete="off" spellcheck={false} />
-			<p class="text-sm text-muted-foreground">
-				Path inside the container. In Docker, /music is the MUSIC_DIR folder set in .env.
-			</p>
-			{#if errors?.libraryDir}
-				<p class="text-sm text-destructive">{errors.libraryDir}</p>
-			{:else if data.libraryError}
-				<p class="text-sm text-amber-600 dark:text-amber-400">{data.libraryError}</p>
-			{/if}
-		</div>
+		{#snippet library()}
+			<div class="flex flex-col gap-2">
+				<Label for="libraryDir">Music folder</Label>
+				<Input
+					id="libraryDir"
+					name="libraryDir"
+					bind:value={libraryDir}
+					autocomplete="off"
+					spellcheck={false}
+					class="font-mono text-sm"
+					aria-invalid={errors?.libraryDir ? 'true' : undefined}
+				/>
+				<p class="text-sm text-muted-foreground">
+					Path inside the container. In Docker, /music is the MUSIC_DIR folder set in .env.
+				</p>
+				{#if errors?.libraryDir}
+					<p class="text-sm text-destructive">{errors.libraryDir}</p>
+				{:else if data.libraryError}
+					<p class="text-sm text-amber-700 dark:text-amber-400">{data.libraryError}</p>
+				{/if}
+			</div>
 
-		<div class="flex flex-col gap-2">
-			<Label for="owner">File owner</Label>
-			<Select.Root type="single" bind:value={owner}>
-				<Select.Trigger id="owner" class="w-full sm:w-80">{ownerLabel}</Select.Trigger>
-				<Select.Content>
-					<Select.Item value="auto" label="Same as the music folder">Same as the music folder</Select.Item>
-					{#each data.users as u (u.uid)}
-						<Select.Item value={String(u.uid)} label={u.name}>
-							{u.name} ({u.uid}:{u.gid}, group {u.group})
-						</Select.Item>
+			<div class="flex flex-col gap-2">
+				<Label for="owner">File owner</Label>
+				<Select.Root type="single" bind:value={owner}>
+					<Select.Trigger id="owner" class="w-full sm:w-80">{ownerLabel}</Select.Trigger>
+					<Select.Content>
+						<Select.Item value="auto" label="Same as the music folder">Same as the music folder</Select.Item>
+						{#each data.users as u (u.uid)}
+							<Select.Item value={String(u.uid)} label={u.name}>
+								{u.name} ({u.uid}:{u.gid}, group {u.group})
+							</Select.Item>
+						{/each}
+					</Select.Content>
+				</Select.Root>
+				<input type="hidden" name="owner" value={owner} />
+				<p class="text-sm text-muted-foreground">New folders and songs are owned by this user and their primary group.</p>
+				{#if errors?.owner}<p class="text-sm text-destructive">{errors.owner}</p>{/if}
+			</div>
+
+			<fieldset class="flex flex-col gap-3">
+				<legend class="mb-3 text-sm font-medium">When a song is already in the library</legend>
+				<RadioGroup.Root bind:value={existingFiles} class="flex flex-col gap-3">
+					{#each existingOptions as opt (opt.value)}
+						<div class="flex items-start gap-3">
+							<RadioGroup.Item value={opt.value} id={`existing-${opt.value}`} class="mt-0.5" />
+							<Label for={`existing-${opt.value}`} class="flex flex-col items-start gap-0.5 font-normal">
+								<span>{opt.label}</span>
+								<span class="text-sm text-muted-foreground">{opt.hint}</span>
+							</Label>
+						</div>
 					{/each}
-				</Select.Content>
-			</Select.Root>
-			<input type="hidden" name="owner" value={owner} />
-			<p class="text-sm text-muted-foreground">New folders and songs are owned by this user and their primary group.</p>
-			{#if errors?.owner}<p class="text-sm text-destructive">{errors.owner}</p>{/if}
-		</div>
+				</RadioGroup.Root>
+				<input type="hidden" name="existingFiles" value={existingFiles} />
+				{#if errors?.existingFiles}<p class="text-sm text-destructive">{errors.existingFiles}</p>{/if}
+			</fieldset>
 
-		<fieldset class="flex flex-col gap-3">
-			<legend class="mb-3 text-sm font-medium">When a song is already in the library</legend>
-			<RadioGroup.Root bind:value={existingFiles} class="flex flex-col gap-3">
-				{#each existingOptions as opt (opt.value)}
-					<div class="flex items-start gap-3">
-						<RadioGroup.Item value={opt.value} id={`existing-${opt.value}`} class="mt-0.5" />
-						<Label for={`existing-${opt.value}`} class="flex flex-col items-start gap-0.5 font-normal">
-							<span>{opt.label}</span>
-							<span class="text-sm text-muted-foreground">{opt.hint}</span>
-						</Label>
-					</div>
-				{/each}
-			</RadioGroup.Root>
-			<input type="hidden" name="existingFiles" value={existingFiles} />
-			{#if errors?.existingFiles}<p class="text-sm text-destructive">{errors.existingFiles}</p>{/if}
-		</fieldset>
+			<div class="flex flex-col gap-2">
+				<Label for="artSize">Album art size</Label>
+				<Select.Root type="single" bind:value={artSize}>
+					<Select.Trigger id="artSize" class="w-full sm:w-80">{artLabels[Number(artSize)]}</Select.Trigger>
+					<Select.Content>
+						{#each ART_SIZES as size (size)}
+							<Select.Item value={String(size)} label={artLabels[size]}>{artLabels[size]}</Select.Item>
+						{/each}
+					</Select.Content>
+				</Select.Root>
+				<input type="hidden" name="artSize" value={artSize} />
+				<p class="text-sm text-muted-foreground">
+					Covers come from Deezer. When Deezer has none, the YouTube thumbnail (or the existing cover, when
+					re-tagging) is cropped square instead.
+				</p>
+				{#if errors?.artSize}<p class="text-sm text-destructive">{errors.artSize}</p>{/if}
+			</div>
+		{/snippet}
+		{@render card('Library', 'Where music goes and how it is filed.', library)}
 
-		<div class="flex flex-col gap-2">
-			<Label for="artSize">Album art size</Label>
-			<Select.Root type="single" bind:value={artSize}>
-				<Select.Trigger id="artSize" class="w-full sm:w-80">{artLabels[Number(artSize)]}</Select.Trigger>
-				<Select.Content>
-					{#each ART_SIZES as size (size)}
-						<Select.Item value={String(size)} label={artLabels[size]}>{artLabels[size]}</Select.Item>
-					{/each}
-				</Select.Content>
-			</Select.Root>
-			<input type="hidden" name="artSize" value={artSize} />
-			<p class="text-sm text-muted-foreground">
-				Covers come from Deezer. When Deezer has none, the YouTube thumbnail (or the existing cover, when re-tagging) is cropped square instead.
-			</p>
-			{#if errors?.artSize}<p class="text-sm text-destructive">{errors.artSize}</p>{/if}
-		</div>
+		{#snippet downloads()}
+			<div class="flex flex-col gap-2">
+				<Label for="concurrency">Songs downloaded at the same time</Label>
+				<Input
+					id="concurrency"
+					name="concurrency"
+					type="number"
+					min={1}
+					max={MAX_CONCURRENCY}
+					bind:value={concurrency}
+					class="w-24"
+				/>
+				<p class="text-sm text-muted-foreground">
+					1 to {MAX_CONCURRENCY}. Lower it if YouTube starts refusing downloads.
+				</p>
+				{#if errors?.concurrency}<p class="text-sm text-destructive">{errors.concurrency}</p>{/if}
+			</div>
 
+			<div class="flex flex-col gap-2 text-sm">
+				<p class="font-medium">Downloader</p>
+				{#await data.downloader}
+					<p class="flex items-center gap-2 text-muted-foreground">
+						<LoaderCircle class="size-4 animate-spin" aria-hidden="true" /> Checking yt-dlp…
+					</p>
+				{:then d}
+					<ul class="flex flex-col gap-1.5">
+						<li class="flex items-start gap-2">
+							{#if d.ytdlpVersion}
+								<CircleCheck class="mt-0.5 size-4 shrink-0 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />
+								<span>yt-dlp <span class="font-mono text-[0.8125rem]">{d.ytdlpVersion}</span></span>
+							{:else}
+								<CircleAlert class="mt-0.5 size-4 shrink-0 text-destructive" aria-hidden="true" />
+								<span class="text-destructive">yt-dlp is not installed or can't be run.</span>
+							{/if}
+						</li>
+						<li class="flex items-start gap-2">
+							{#if d.potProvider === 'ok'}
+								<CircleCheck class="mt-0.5 size-4 shrink-0 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />
+								<span>
+									PO token provider connected{d.potProviderVersion ? ` (${d.potProviderVersion})` : ''}.
+								</span>
+							{:else if d.potProvider === 'unreachable'}
+								<CircleAlert class="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden="true" />
+								<span>
+									The PO token provider isn't answering. Downloads still work when YouTube allows it, but fail
+									more often. It starts with napster and is restarted if it stops; the container log
+									(lines marked <span class="font-mono text-[0.8125rem]">[pot-provider]</span>) says why.
+								</span>
+							{:else}
+								<CircleAlert class="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+								<span class="text-muted-foreground">
+									No PO token provider here (it's built into the Docker image). napster relies on the YouTube
+									clients that don't ask for a token.
+								</span>
+							{/if}
+						</li>
+					</ul>
+				{/await}
+			</div>
 
+			<details class="group rounded-lg border px-3 py-2.5 text-sm" open={!!playerClients || !!errors?.playerClients}>
+				<summary class="cursor-pointer font-medium select-none">Advanced</summary>
+				<div class="mt-3 flex flex-col gap-2">
+					<Label for="playerClients">YouTube player clients</Label>
+					<Input
+						id="playerClients"
+						name="playerClients"
+						bind:value={playerClients}
+						placeholder="Automatic"
+						autocomplete="off"
+						autocapitalize="off"
+						spellcheck={false}
+						class="font-mono text-sm sm:w-80"
+						aria-invalid={errors?.playerClients ? 'true' : undefined}
+					/>
+					<p class="text-muted-foreground">
+						Leave empty. napster starts with yt-dlp's own choice and works through other ways of asking on its
+						own. If YouTube changes something and downloads fail anyway, a list here (for example
+						<span class="font-mono text-[0.8125rem]">web_embedded,mweb</span>) is tried first.
+					</p>
+					{#if errors?.playerClients}<p class="text-destructive">{errors.playerClients}</p>{/if}
+				</div>
+			</details>
+		{/snippet}
+		{@render card('Downloads', 'How songs are fetched from YouTube Music.', downloads)}
 
-		<div class="flex flex-col gap-2">
-			<Label for="concurrency">Songs downloaded at the same time</Label>
-			<Input id="concurrency" name="concurrency" type="number" min={1} max={MAX_CONCURRENCY} bind:value={concurrency} class="w-24" />
-			{#if errors?.concurrency}<p class="text-sm text-destructive">{errors.concurrency}</p>{/if}
-		</div>
-
-		<div class="flex items-center gap-4 border-t pt-6">
-			<Button type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save settings'}</Button>
+		<div class="flex items-center gap-4">
+			<Button type="submit" disabled={saving}>
+				{#if saving}<LoaderCircle class="animate-spin" />{/if}
+				{saving ? 'Saving…' : 'Save settings'}
+			</Button>
 			{#if justSaved}
-				<p class="text-sm text-muted-foreground" role="status">Saved. New downloads use these settings.</p>
+				<p class="flex items-center gap-1.5 text-sm text-muted-foreground" role="status">
+					<CircleCheck class="size-4 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />
+					Saved. New downloads use these settings.
+				</p>
+			{:else if errors}
+				<p class="text-sm text-destructive" role="alert">Not saved. Check the highlighted fields.</p>
 			{/if}
 		</div>
 	</form>
-	<section class="flex flex-col gap-4 border-t pt-8" aria-labelledby="cookies-heading">
-		<div class="flex flex-col gap-1">
-			<h2 id="cookies-heading" class="text-xl font-semibold tracking-tight">YouTube cookies</h2>
-			<p class="text-sm text-muted-foreground">
-				Downloads run as your signed-in YouTube account, which stops most HTTP 403 errors.
-			</p>
-		</div>
 
+	{#snippet cookies()}
 		{#if data.cookies.present}
-			<div class="flex flex-wrap items-center justify-between gap-3 rounded-md bg-muted/50 px-3 py-2 text-sm">
-				<p>
+			<div class="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-muted/50 px-3 py-2 text-sm">
+				<p class="flex items-start gap-2">
 					{#if data.cookies.youtubeCookies === 0}
+						<CircleAlert class="mt-0.5 size-4 shrink-0 text-destructive" aria-hidden="true" />
 						<span class="text-destructive">The saved file is unreadable. Upload a new one.</span>
+					{:else if cookiesExpired}
+						<CircleAlert class="mt-0.5 size-4 shrink-0 text-destructive" aria-hidden="true" />
+						<span class="text-destructive">The saved cookies have expired. Export new ones.</span>
 					{:else}
-						Saved {data.cookies.savedAt ? dateFormat.format(data.cookies.savedAt) : ''}.
-						{#if cookiesExpired}
-							<span class="text-destructive">They have expired; export new ones.</span>
-						{:else if data.cookies.expiresAt}
-							Sign-in cookies expire {dateFormat.format(data.cookies.expiresAt)}.
-						{/if}
+						<CircleCheck class="mt-0.5 size-4 shrink-0 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />
+						<span>
+							Saved {data.cookies.savedAt ? dateFormat.format(data.cookies.savedAt) : ''}.
+							{#if data.cookies.expiresAt}Sign-in cookies expire {dateFormat.format(data.cookies.expiresAt)}.{/if}
+						</span>
 					{/if}
 				</p>
 				<form method="POST" action="?/removeCookies" use:enhance>
@@ -190,13 +300,16 @@
 				</form>
 			</div>
 		{:else}
-			<p class="text-sm text-amber-600 dark:text-amber-400">No cookies saved. Some downloads may fail with HTTP 403.</p>
+			<p class="flex items-start gap-2 rounded-lg bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
+				<CircleAlert class="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+				No cookies saved. That's fine while downloads work; add them if YouTube asks you to sign in.
+			</p>
 		{/if}
 
 		<form
 			method="POST"
 			action="?/cookiesFromBrowser"
-			class="flex flex-col gap-4 rounded-md border px-4 py-4"
+			class="flex flex-col gap-4 rounded-lg border px-4 py-4"
 			use:enhance={() => {
 				browserBusy = true;
 				return async ({ update }) => {
@@ -209,9 +322,9 @@
 				<h3 class="font-medium">Read them from a browser</h3>
 				<p class="text-sm text-muted-foreground">
 					Takes the signed-in YouTube session straight from your browser, like
-					<span class="font-mono">yt-dlp --cookies-from-browser</span>. Only YouTube cookies are kept.
-					This only works when napster runs on the same computer as the browser. For the server, run
-					<span class="font-mono">scripts/sync-cookies.sh</span> on your Mac instead.
+					<span class="font-mono text-[0.8125rem]">yt-dlp --cookies-from-browser</span>. Only YouTube cookies are
+					kept. This only works when napster runs on the same computer as the browser. For the server, run
+					<span class="font-mono text-[0.8125rem]">scripts/sync-cookies.sh</span> on your Mac instead.
 				</p>
 			</div>
 
@@ -259,43 +372,18 @@
 				</p>
 			{/if}
 			<div>
-				<Button type="submit" disabled={browserBusy}>
+				<Button type="submit" variant="outline" disabled={browserBusy}>
+					{#if browserBusy}<LoaderCircle class="animate-spin" />{/if}
 					{browserBusy ? 'Reading cookies…' : browser ? 'Import now and save' : 'Save'}
 				</Button>
 			</div>
 		</form>
 
-		<details class="rounded-md border px-4 py-3 text-sm">
-			<summary class="cursor-pointer font-medium">Or export them by hand</summary>
-			<ol class="mt-3 flex list-decimal flex-col gap-2 pl-5 text-muted-foreground">
-				<li>
-					Use a spare Google account if you can. YouTube can restrict accounts it sees downloading
-					with yt-dlp.
-				</li>
-				<li>
-					Install a cookie exporter: <span class="text-foreground">Get cookies.txt LOCALLY</span> for
-					Chrome, or <span class="text-foreground">cookies.txt</span> for Firefox. Avoid the similarly
-					named “Get cookies.txt” (without LOCALLY); it was removed for sending cookies to a third party.
-				</li>
-				<li>Open a private (incognito) window and allow the extension to run there.</li>
-				<li>Sign in at music.youtube.com.</li>
-				<li>
-					With the music.youtube.com tab open, click the extension and export the cookies for the
-					current site. You get a <span class="font-mono">cookies.txt</span> file.
-				</li>
-				<li>
-					Close the private window without signing out. Using that session in a browser again makes
-					YouTube replace the cookies and the file stops working.
-				</li>
-				<li>Upload the file below. When downloads start failing again, repeat these steps.</li>
-			</ol>
-		</details>
-
 		<form
 			method="POST"
 			action="?/cookies"
 			enctype="multipart/form-data"
-			class="flex flex-col gap-3"
+			class="flex flex-col gap-4 rounded-lg border px-4 py-4"
 			use:enhance={() => {
 				cookiesBusy = true;
 				return async ({ update }) => {
@@ -304,6 +392,37 @@
 				};
 			}}
 		>
+			<div class="flex flex-col gap-1">
+				<h3 class="font-medium">Upload a cookies.txt</h3>
+				<p class="text-sm text-muted-foreground">For a server, where there's no browser to read from.</p>
+			</div>
+
+			<details class="rounded-lg bg-muted/50 px-3 py-2.5 text-sm">
+				<summary class="cursor-pointer font-medium select-none">How to export one</summary>
+				<ol class="mt-3 flex list-decimal flex-col gap-2 pl-5 text-muted-foreground">
+					<li>
+						Use a spare Google account if you can. YouTube can restrict accounts it sees downloading
+						with yt-dlp.
+					</li>
+					<li>
+						Install a cookie exporter: <span class="text-foreground">Get cookies.txt LOCALLY</span> for
+						Chrome, or <span class="text-foreground">cookies.txt</span> for Firefox. Avoid the similarly
+						named “Get cookies.txt” (without LOCALLY); it was removed for sending cookies to a third party.
+					</li>
+					<li>Open a private (incognito) window and allow the extension to run there.</li>
+					<li>Sign in at music.youtube.com.</li>
+					<li>
+						With the music.youtube.com tab open, click the extension and export the cookies for the
+						current site. You get a <span class="font-mono text-[0.8125rem]">cookies.txt</span> file.
+					</li>
+					<li>
+						Close the private window without signing out. Using that session in a browser again makes
+						YouTube replace the cookies and the file stops working.
+					</li>
+					<li>Upload the file below. When downloads start failing again, repeat these steps.</li>
+				</ol>
+			</details>
+
 			<div class="flex flex-col gap-2">
 				<Label for="cookiesFile">cookies.txt file</Label>
 				<Input id="cookiesFile" name="cookiesFile" type="file" accept=".txt,text/plain" />
@@ -321,10 +440,20 @@
 				/>
 			</div>
 			{#if cookiesError}<p class="text-sm text-destructive" role="alert">{cookiesError}</p>{/if}
-			{#if form && 'cookiesSaved' in form}<p class="text-sm text-muted-foreground" role="status">Cookies saved. New downloads use them.</p>{/if}
+			{#if form && 'cookiesSaved' in form}
+				<p class="text-sm text-muted-foreground" role="status">Cookies saved. New downloads use them.</p>
+			{/if}
 			<div>
-				<Button type="submit" disabled={cookiesBusy}>{cookiesBusy ? 'Saving…' : 'Save cookies'}</Button>
+				<Button type="submit" variant="outline" disabled={cookiesBusy}>
+					{#if cookiesBusy}<LoaderCircle class="animate-spin" />{/if}
+					{cookiesBusy ? 'Saving…' : 'Save cookies'}
+				</Button>
 			</div>
 		</form>
-	</section>
+	{/snippet}
+	{@render card(
+		'YouTube cookies',
+		'Optional. Downloads then run as your signed-in YouTube account, which gets past “sign in to confirm” checks.',
+		cookies
+	)}
 </main>

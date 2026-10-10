@@ -2,9 +2,8 @@ import { chown, copyFile, link, mkdir, rename, rm, stat, unlink, writeFile } fro
 import { randomUUID } from 'node:crypto';
 import { dirname, join, relative, resolve } from 'node:path';
 import type { BackupSummary } from '$lib/types';
-import { config } from './config';
 import { BACKUP_DIR, assertInside, exists, removeEmptyDirs, withLibraryLock } from './library';
-import { readJson, writeJson } from './store';
+import { db } from './db';
 
 interface BackupFile {
 	original: string; // library-relative path before the re-tag
@@ -20,26 +19,38 @@ interface Backup {
 	files: BackupFile[];
 }
 
-const FILE = join(config.dataDir, 'backups.json');
+const q = {
+	summaries: db.query<BackupSummary, []>(
+		`SELECT b.id, b.created_at AS createdAt, b.label, COUNT(f.backup_id) AS files
+		 FROM backups b LEFT JOIN backup_files f ON f.backup_id = b.id
+		 GROUP BY b.id ORDER BY b.created_at DESC`
+	),
+	one: db.query<Omit<Backup, 'files'>, [string]>(
+		'SELECT id, created_at AS createdAt, library_dir AS libraryDir, label FROM backups WHERE id = ?'
+	),
+	all: db.query<Pick<Backup, 'id' | 'libraryDir'>, []>('SELECT id, library_dir AS libraryDir FROM backups'),
+	files: db.query<BackupFile, [string]>(
+		'SELECT original, current, stored FROM backup_files WHERE backup_id = ? ORDER BY position'
+	),
+	insert: db.query('INSERT INTO backups (id, created_at, library_dir, label) VALUES (?, ?, ?, ?)'),
+	insertFile: db.query('INSERT INTO backup_files (backup_id, position, original, current, stored) VALUES (?, ?, ?, ?, ?)'),
+	setCurrent: db.query('UPDATE backup_files SET current = ? WHERE backup_id = ? AND original = ?'),
+	delete: db.query('DELETE FROM backups WHERE id = ?'), // its files go with it (ON DELETE CASCADE)
+	deleteAll: db.query('DELETE FROM backups'),
+	moves: db.query<{ libraryDir: string; original: string; current: string; at: number }, []>(
+		`SELECT b.library_dir AS libraryDir, f.original, f.current, b.created_at AS at
+		 FROM backup_files f JOIN backups b ON b.id = f.backup_id
+		 WHERE f.current IS NOT NULL AND f.current <> f.original`
+	)
+};
 
-// backups.json edits are serialized too.
-let chain: Promise<unknown> = Promise.resolve();
-function mutate<T>(fn: (list: Backup[]) => Promise<T> | T): Promise<T> {
-	const next = chain.then(async () => {
-		const list = (await readJson<Backup[]>(FILE)) ?? [];
-		const result = await fn(list);
-		await writeJson(FILE, list);
-		return result;
-	});
-	chain = next.catch(() => undefined);
-	return next;
+function getBackup(id: string): Backup | undefined {
+	const row = q.one.get(id);
+	return row ? { ...row, files: q.files.all(id) } : undefined;
 }
 
 export async function listBackups(): Promise<BackupSummary[]> {
-	const list = (await readJson<Backup[]>(FILE)) ?? [];
-	return list
-		.map((b) => ({ id: b.id, createdAt: b.createdAt, label: b.label, files: b.files.length }))
-		.sort((a, b) => b.createdAt - a.createdAt);
+	return q.summaries.all();
 }
 
 const folderOf = (b: Pick<Backup, 'libraryDir' | 'id'>) => join(b.libraryDir, BACKUP_DIR, b.id);
@@ -72,26 +83,27 @@ export async function createBackupUnlocked(libraryDir: string, label: string, fi
 		await linkOrCopy(abs, join(folder, stored));
 		entries.push({ original: relative(libraryDir, abs), current: null, stored });
 	}
-	await mutate((list) => {
-		list.push({ id, createdAt: Date.now(), libraryDir, label, files: entries });
-	});
+	db.transaction(() => {
+		q.insert.run(id, Date.now(), libraryDir, label);
+		for (const [i, f] of entries.entries()) q.insertFile.run(id, i, f.original, f.current, f.stored);
+	})();
 	return id;
 }
 
-export function recordCurrentPaths(id: string, current: Map<string, string>) {
-	return mutate((list) => {
-		const b = list.find((x) => x.id === id);
-		if (!b) return;
-		for (const f of b.files) f.current = current.get(f.original) ?? null;
-	});
+export async function recordCurrentPaths(id: string, current: Map<string, string>): Promise<void> {
+	db.transaction(() => {
+		for (const f of q.files.all(id)) q.setCurrent.run(current.get(f.original) ?? null, id, f.original);
+	})();
 }
 
-/** Puts every original file back where it was and removes the re-tagged versions. */
-/** Restores a backup; returns the files it moved back (current path → original path). */
+/**
+ * Puts every original file back where it was and removes the re-tagged versions.
+ * Returns the files it moved back (current path → original path).
+ */
 export function restoreBackup(id: string): Promise<Map<string, string>> {
 	return withLibraryLock(async () => {
 		const moves = new Map<string, string>();
-		const backup = ((await readJson<Backup[]>(FILE)) ?? []).find((b) => b.id === id);
+		const backup = getBackup(id);
 		if (!backup) throw new Error('Backup not found.');
 		const root = backup.libraryDir;
 		const folder = folderOf(backup);
@@ -126,47 +138,33 @@ export function restoreBackup(id: string): Promise<Map<string, string>> {
 		for (const dir of touchedDirs) await removeEmptyDirs(root, dir);
 
 		await rm(folder, { recursive: true, force: true });
-		await mutate((list) => {
-			const i = list.findIndex((b) => b.id === id);
-			if (i >= 0) list.splice(i, 1);
-		});
+		q.delete.run(id);
 		return moves;
 	});
 }
 
 /** Moves recorded in backup records (original → where the re-tag put it), for finding files later. */
-export async function backupMoves(): Promise<{ from: string; to: string; at: number }[]> {
-	const out: { from: string; to: string; at: number }[] = [];
-	for (const b of (await readJson<Backup[]>(FILE)) ?? []) {
-		for (const f of b.files) {
-			if (f.current && f.current !== f.original) {
-				out.push({ from: resolve(b.libraryDir, f.original), to: resolve(b.libraryDir, f.current), at: b.createdAt });
-			}
-		}
-	}
-	return out;
+export function backupMoves(): { from: string; to: string; at: number }[] {
+	return q.moves
+		.all()
+		.map((m) => ({ from: resolve(m.libraryDir, m.original), to: resolve(m.libraryDir, m.current), at: m.at }));
 }
 
 export function deleteBackup(id: string): Promise<void> {
 	return withLibraryLock(async () => {
-		const backup = ((await readJson<Backup[]>(FILE)) ?? []).find((b) => b.id === id);
+		const backup = q.one.get(id);
 		if (!backup) throw new Error('Backup not found.');
 		await rm(folderOf(backup), { recursive: true, force: true });
-		await mutate((list) => {
-			const i = list.findIndex((b) => b.id === id);
-			if (i >= 0) list.splice(i, 1);
-		});
+		q.delete.run(id);
 	});
 }
 
 /** Removes every backup; the current files in the library are not touched. */
 export function deleteAllBackups(): Promise<number> {
 	return withLibraryLock(async () => {
-		const list = (await readJson<Backup[]>(FILE)) ?? [];
+		const list = q.all.all();
 		for (const b of list) await rm(folderOf(b), { recursive: true, force: true });
-		await mutate((l) => {
-			l.length = 0;
-		});
+		q.deleteAll.run();
 		return list.length;
 	});
 }

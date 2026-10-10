@@ -121,9 +121,34 @@
 		@apply border-border outline-ring/50;
 	}
 	body {
-		@apply bg-background text-foreground;
+		@apply bg-background text-foreground antialiased;
 	}
 	html {
 		@apply font-sans;
+		color-scheme: light;
+		scrollbar-gutter: stable;
+	}
+	html.dark {
+		color-scheme: dark;
+	}
+}
+
+/* A bar that slides across while there's no percentage to show yet. */
+@keyframes progress-indeterminate {
+	from {
+		transform: translateX(-100%);
+	}
+	to {
+		transform: translateX(300%);
+	}
+}
+.progress-indeterminate {
+	animation: progress-indeterminate 1.4s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+	.progress-indeterminate {
+		animation: none;
+		width: 100%;
+		opacity: 0.4;
 	}
 }

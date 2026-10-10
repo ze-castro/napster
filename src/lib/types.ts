@@ -19,6 +19,10 @@ export interface TrackState {
 	path?: string; // relative to the music folder
 	warnings: string[];
 	error?: string;
+	/** The tool's own output behind `error`, for the "Details" disclosure. */
+	errorDetail?: string;
+	/** Downloads from an album link: the song's position on the album. */
+	albumIndex?: number;
 	/** Re-tag only: human-readable "field: old → new" lines. */
 	changes?: string[];
 	/** Set while the track waits in a review. */
@@ -47,6 +51,7 @@ export interface JobState {
 	createdAt: number;
 	status: 'resolving' | 'running' | 'needs-input' | 'done' | 'failed';
 	error?: string;
+	errorDetail?: string;
 	warnings?: string[];
 	tracks: TrackState[];
 	albums: AlbumMatch[];

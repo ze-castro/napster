@@ -7,6 +7,8 @@ services:
     image: ${NAPSTER_IMAGE:-napster:local}
     build: .
     restart: unless-stopped
+    # Reaps the helper processes napster starts (yt-dlp, ffmpeg, the PO token provider).
+    init: true
     # Runs as root so it can hand new files to the owner picked in Settings.
     ports:
       - "${PORT:-3000}:${PORT:-3000}"
@@ -15,7 +17,7 @@ services:
       ORIGIN: ${ORIGIN:?Set ORIGIN in .env}
       PORT: ${PORT:-3000}
     volumes:
-      - ./data:/data # settings, history, cookies, backup list
+      - ./data:/data # napster.db (settings, history, backup list), cookies, pending downloads
       - ${MUSIC_DIR:?Set MUSIC_DIR in .env}:/music # must be writable, no :ro
       # Lets Settings list this machine's users for the file owner.
       - /etc/passwd:/host/etc/passwd:ro

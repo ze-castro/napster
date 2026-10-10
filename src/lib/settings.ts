@@ -22,6 +22,9 @@ export const COOKIE_BROWSERS = [
 ] as const;
 export type CookieBrowser = (typeof COOKIE_BROWSERS)[number];
 
+/** Comma-separated yt-dlp player clients, e.g. "web_embedded,mweb" or "default,-tv". */
+export const PLAYER_CLIENTS_PATTERN = /^(-?[a-z][a-z0-9_]*)(,-?[a-z][a-z0-9_]*)*$|^$/;
+
 export interface FileOwner {
 	uid: number;
 	gid: number;
@@ -39,6 +42,11 @@ export interface Settings {
 	cookieProfile: string;
 	/** Re-import from the browser before every download job. */
 	cookieAutoRefresh: boolean;
+	/**
+	 * Advanced: yt-dlp player clients to try first. '' = automatic, which follows whatever
+	 * the installed yt-dlp currently considers working.
+	 */
+	playerClients: string;
 }
 
 export interface SystemUser {

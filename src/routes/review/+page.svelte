@@ -1,8 +1,13 @@
 <script lang="ts">
+	import ChevronRight from '@lucide/svelte/icons/chevron-right';
+	import CircleCheck from '@lucide/svelte/icons/circle-check';
+	import Music from '@lucide/svelte/icons/music';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
+	import PageHeader from '$lib/components/page-header.svelte';
 	import ReviewDialog from '$lib/components/review-dialog.svelte';
 	import { Badge } from '$lib/components/ui/badge/index.js';
+	import { timeAgo } from '$lib/format';
 	import { useLive } from '$lib/jobs.svelte';
 	import type { ReviewSummary } from '$lib/types';
 
@@ -21,42 +26,72 @@
 	}
 
 	const reasonLabel: Record<ReviewSummary['reason'], string> = {
-		'not-found': 'Not found',
+		'not-found': 'Not on Deezer',
 		'close-match': 'Close match',
-		edit: 'Edit tags'
+		edit: 'Editing tags'
 	};
 	const kindLabel: Record<ReviewSummary['kind'], string> = {
 		download: 'Download',
 		retag: 'Re-tag',
 		edit: 'Library'
 	};
-	const dateFormat = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+
+	// Reviews without a cover fall back to the placeholder tile.
+	let noCover = $state<Record<string, boolean>>({});
 </script>
 
-<main class="mx-auto flex min-h-screen max-w-3xl flex-col gap-6 px-5 py-10">
-	<header class="flex flex-col gap-1">
-		<h1 class="text-4xl font-semibold tracking-tight">Needs input</h1>
-		<p class="text-sm text-muted-foreground">
-			Songs Deezer couldn't match with confidence, and folders you're editing. Downloaded songs wait here safely until you save or discard them.
-		</p>
-	</header>
+<main class="mx-auto flex max-w-3xl flex-col gap-6 px-4 py-8 sm:px-5 sm:py-10">
+	<PageHeader title="Needs input">
+		Songs Deezer couldn't match with confidence, and folders you're editing. Downloads wait here safely until you
+		save or discard them.
+	</PageHeader>
 
 	{#if live.reviews.length === 0}
-		<p class="text-sm text-muted-foreground">Nothing waiting. Everything was matched.</p>
+		<div class="flex flex-col items-center gap-2 rounded-xl border border-dashed px-6 py-12 text-center">
+			<CircleCheck class="size-5 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />
+			<p class="text-sm font-medium">All caught up</p>
+			<p class="text-sm text-muted-foreground">Nothing is waiting for you.</p>
+		</div>
 	{:else}
-		<ul class="flex flex-col divide-y rounded-md border">
+		<ul class="flex flex-col gap-2">
 			{#each live.reviews as r (r.id)}
 				<li>
-					<button class="flex w-full items-center gap-3 px-3 py-3 text-left hover:bg-muted/50" onclick={() => openReview(r.id)}>
-						<span class="flex min-w-0 flex-1 flex-col gap-0.5">
+					<button
+						class="flex w-full items-center gap-3 rounded-xl border bg-card px-3 py-2.5 text-left transition-colors hover:bg-muted/50 focus-visible:outline-2 focus-visible:outline-ring"
+						onclick={() => openReview(r.id)}
+					>
+						{#if noCover[r.id]}
+							<span class="flex size-11 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground" aria-hidden="true">
+								<Music class="size-5" />
+							</span>
+						{:else}
+							<img
+								src={`/api/reviews/${encodeURIComponent(r.id)}/cover`}
+								alt=""
+								loading="lazy"
+								class="size-11 shrink-0 rounded-md bg-muted object-cover"
+								onerror={() => (noCover[r.id] = true)}
+							/>
+						{/if}
+						<span class="flex min-w-0 flex-1 flex-col">
 							<span class="truncate font-medium">{r.title}</span>
 							<span class="truncate text-sm text-muted-foreground">
-								{kindLabel[r.kind]}, {r.songs} {r.songs === 1 ? 'song' : 'songs'}, {dateFormat.format(r.createdAt)}
+								{kindLabel[r.kind]} · {r.songs} {r.songs === 1 ? 'song' : 'songs'} · {timeAgo(r.createdAt)}
 							</span>
 							{#if r.note}<span class="truncate text-xs text-amber-700 dark:text-amber-400">{r.note}</span>{/if}
 						</span>
-						<Badge variant={r.reason === 'close-match' ? 'secondary' : 'outline'} class="shrink-0">{reasonLabel[r.reason]}</Badge>
-						<span class="shrink-0 text-muted-foreground" aria-hidden="true">›</span>
+						<Badge
+							variant="outline"
+							class={[
+								'shrink-0',
+								r.reason === 'edit'
+									? ''
+									: 'border-transparent bg-amber-500/15 text-amber-700 dark:text-amber-300'
+							]}
+						>
+							{reasonLabel[r.reason]}
+						</Badge>
+						<ChevronRight class="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
 					</button>
 				</li>
 			{/each}

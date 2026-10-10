@@ -35,7 +35,7 @@ import { recordMoves } from './moves';
 import { toTags, type Tags } from './tags';
 import { extractCover, MIN_AUDIO_KBPS, probeFile, verify, writeTags } from './tagging';
 import { normalize } from './text';
-import { download, type ResolvedEntry, type YtInfo } from './ytdlp';
+import { download, DownloadError, type ResolvedEntry, type YtInfo } from './ytdlp';
 
 export type Slot = <T>(fn: () => Promise<T>) => Promise<T>;
 
@@ -61,6 +61,7 @@ type Mode = 'download' | 'retag';
 function fail(track: TrackState, err: unknown) {
 	track.status = 'failed';
 	track.error = err instanceof Error ? err.message : String(err);
+	track.errorDetail = err instanceof DownloadError ? err.detail : undefined;
 }
 
 // ---------------------------------------------------------------- source data
@@ -413,26 +414,37 @@ async function createReview(ctx: Ctx, items: Item[], result: MatchResult, mode: 
 export async function runDownload(ctx: Ctx, entries: ResolvedEntry[], albumPlaylist: boolean): Promise<void> {
 	const { job, update } = ctx;
 	const items: (Item | undefined)[] = [];
+	const byKey = new Map(job.tracks.map((t) => [t.key, t]));
 
 	await Promise.all(
 		entries.map((entry, i) =>
 			ctx.slot(async () => {
-				const track = job.tracks[i];
+				const track = byKey.get(entry.videoId);
+				if (!track) return;
 				const dir = join(ctx.workDir, entry.videoId);
 				try {
 					await mkdir(dir, { recursive: true });
 					track.status = 'downloading';
 					update();
-					const dl = await download(entry.videoId, dir, (pct) => {
-						track.progress = pct;
-						update();
+					const dl = await download(entry.videoId, dir, {
+						playerClients: ctx.settings.playerClients,
+						onProgress: (pct) => {
+							track.progress = pct;
+							update();
+						},
+						onTitle: (title, artist) => {
+							track.title = title;
+							// A song link has no name until now.
+							if (job.kind === 'track') job.title = artist ? `${artist} – ${title}` : title;
+							update();
+						}
 					});
 					track.progress = 100;
 					track.status = 'waiting';
 					items[i] = {
 						track,
 						audioPath: dl.audioPath,
-						source: sourceFromYouTube(entry.videoId, dl.info, i + 1, entry.albumIndex),
+						source: sourceFromYouTube(entry.videoId, dl.info, job.tracks.indexOf(track) + 1, entry.albumIndex),
 						fallbackArt: dl.thumbnailPath ? { source: 'youtube', path: dl.thumbnailPath } : undefined
 					};
 				} catch (err) {
@@ -645,6 +657,9 @@ export async function applyReview(
 	for (const it of items) it.track.reviewId = undefined;
 }
 
+/** Marks a downloaded song the user threw away in a review. */
+export const DISCARDED = 'Discarded.';
+
 /** Downloads are deleted; re-tags and edits leave the files untouched. */
 export function discardReviewTracks(job: JobState, review: Review) {
 	for (const t of job.tracks) {
@@ -652,7 +667,7 @@ export function discardReviewTracks(job: JobState, review: Review) {
 		t.reviewId = undefined;
 		if (review.kind === 'download') {
 			t.status = 'failed';
-			t.error = 'Discarded.';
+			t.error = DISCARDED;
 		} else {
 			t.status = 'skipped';
 			t.warnings.push('Skipped; the file was not changed.');

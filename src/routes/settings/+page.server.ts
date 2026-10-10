@@ -5,6 +5,7 @@ import {
 	type CookieBrowser,
 	EXISTING_FILE_MODES,
 	MAX_CONCURRENCY,
+	PLAYER_CLIENTS_PATTERN,
 	type ArtSize,
 	type ExistingFileMode,
 	type Settings
@@ -12,11 +13,19 @@ import {
 import { cookieStatus, importFromBrowser, parseCookies, removeCookies, saveCookies } from '$lib/server/cookies';
 import { checkLibraryDir, readSettings, saveSettings } from '$lib/server/settings';
 import { listUsers } from '$lib/server/system-users';
+import { downloaderStatus } from '$lib/server/ytdlp';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async () => {
 	const [settings, users, cookies] = await Promise.all([readSettings(), listUsers(), cookieStatus()]);
-	return { settings, users, cookies, libraryError: await checkLibraryDir(settings.libraryDir) };
+	return {
+		settings,
+		users,
+		cookies,
+		libraryError: await checkLibraryDir(settings.libraryDir),
+		// Streamed: the page doesn't wait for yt-dlp to start or the provider to answer.
+		downloader: downloaderStatus()
+	};
 };
 
 export const actions: Actions = {
@@ -34,7 +43,6 @@ export const actions: Actions = {
 			errors.concurrency = `Enter a whole number from 1 to ${MAX_CONCURRENCY}.`;
 		}
 
-
 		// "auto" = same owner as the music folder; otherwise must be a listed user.
 		let owner: Settings['owner'] = null;
 		const ownerValue = str('owner');
@@ -51,6 +59,11 @@ export const actions: Actions = {
 		const artSize = Number(str('artSize')) as ArtSize;
 		if (!ART_SIZES.includes(artSize)) errors.artSize = 'Pick a size.';
 
+		const playerClients = str('playerClients').toLowerCase().replace(/\s+/g, '');
+		if (!PLAYER_CLIENTS_PATTERN.test(playerClients)) {
+			errors.playerClients = 'List client names separated by commas, for example web_embedded,mweb.';
+		}
+
 		if (Object.keys(errors).length) return fail(400, { errors });
 
 		await saveSettings({
@@ -59,7 +72,8 @@ export const actions: Actions = {
 			concurrency,
 			owner,
 			existingFiles,
-			artSize
+			artSize,
+			playerClients
 		});
 		return { saved: true };
 	},
